@@ -178,9 +178,9 @@ with st.sidebar:
         "Consumer": ["WMT","KO","PEP","MCD","NKE"],
         "Industrial":["BA","CAT","HON"],
     }
-    sec_sel = st.selectbox("", list(sectors.keys()), label_visibility="collapsed")
+    sec_sel = st.selectbox("", list(sectors.keys()), index=0, label_visibility="collapsed")
     pool = sectors[sec_sel]
-    tickers = st.multiselect("Tickers", pool, default=pool[:6])
+    tickers = st.multiselect("Tickers", pool, default=pool)
     if not tickers: tickers = pool
 
 
@@ -365,7 +365,7 @@ elif page == "SEC Filings":
     if co_s: conds.append("LOWER(company_name) LIKE %s"); params.append(f"%{co_s.lower()}%")
     order={"Filed (newest)":"filed_at DESC","Filed (oldest)":"filed_at ASC","Ticker A-Z":"ticker ASC"}[sort_f]
 
-    fil=q(f"SELECT ticker,company_name,form_type,filed_at,period,is_material_event,document_url FROM sec_filings WHERE {' AND '.join(conds)} ORDER BY {order}",params=tuple(params))
+    fil=q(f"SELECT ticker,company_name,form_type,filed_at::date AS filed_at,period::date AS period,is_material_event,document_url FROM sec_filings WHERE {' AND '.join(conds)} ORDER BY {order}",params=tuple(params))
 
     if fil.empty: st.info("No filings match filters"); st.stop()
 
@@ -383,7 +383,7 @@ elif page == "SEC Filings":
         st.plotly_chart(fp,use_container_width=True)
     with ch2:
         st.markdown('<p class="sec">Monthly timeline</p>', unsafe_allow_html=True)
-        tl=fil.copy(); tl["filed_at"]=pd.to_datetime(tl["filed_at"]); tl["month"]=tl["filed_at"].dt.to_period("M").astype(str)
+        tl=fil.copy(); tl["filed_at"]=pd.to_datetime(tl["filed_at"].astype(str)); tl["month"]=tl["filed_at"].dt.strftime("%Y-%m")
         ml=tl.groupby(["month","form_type"]).size().reset_index(name="n")
         ft=px.bar(ml,x="month",y="n",color="form_type",barmode="stack",color_discrete_map={"8-K":"#FF6B6B","10-K":BLUE})
         fig_style(ft,200); st.plotly_chart(ft,use_container_width=True)
@@ -506,7 +506,7 @@ elif page == "Cross-Source":
         am=q("SELECT date,series_code,value FROM market_data WHERE date BETWEEN %s AND %s ORDER BY date",params=(sd,ed))
         if not am.empty:
             am["date"]=pd.to_datetime(am["date"])
-            piv=am.pivot_table(index="date",columns="series_code",values="value").resample("M").last().dropna(thresh=3)
+            piv=am.pivot_table(index="date",columns="series_code",values="value").resample("ME").last().dropna(thresh=3)
             corr=piv.corr()
             fh=px.imshow(corr,color_continuous_scale=["#EF4444","white",BLUE],color_continuous_midpoint=0,text_auto=".2f",aspect="auto")
             fh.update_layout(margin=dict(l=0,r=0,t=20,b=0),height=400,paper_bgcolor="white",font_family="Inter")
