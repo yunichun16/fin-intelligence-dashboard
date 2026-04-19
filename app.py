@@ -55,6 +55,7 @@ st.markdown("""
 
 NAVY = "#080E1D"
 BLUE = "#3A86FF"
+COLORS = [BLUE, "#FF6B6B", "#FFD166", "#06D6A0", "#8338EC", "#FB5607", "#3A86FF", "#FFBE0B"]
 
 def fig_style(fig, h=300):
     fig.update_layout(
