@@ -1,17 +1,7 @@
 """
 Financial Intelligence Platform — Streamlit Dashboard
 Group 7: Ce Zhang · Cai Gao · Yuchun Wu · Yanji Li
-
-Connects to:
-  - PostgreSQL (Supabase) for structured data: market_data, sec_filings, news_sentiment
-  - MongoDB (Atlas) for document data: news_articles, sec_filing_documents
-
-Run locally:
-    pip install streamlit psycopg2-binary pymongo pandas plotly python-dotenv
-    streamlit run app.py
-
-Run on Streamlit Cloud:
-    Add secrets to .streamlit/secrets.toml (see bottom of this file)
+Columbia University — Big Data Engineering
 """
 
 import os
@@ -19,656 +9,544 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta, date
+from datetime import date, timedelta
 
-# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Financial Intelligence Platform",
-    page_icon="📊",
-    layout="wide",
+    page_icon="📈", layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── Custom CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500&family=DM+Mono&display=swap');
-
-  html, body, [class*="css"] {
-    font-family: 'DM Sans', sans-serif;
-  }
-  h1, h2, h3 { font-family: 'DM Serif Display', serif; font-weight: 400; }
-
-  .main { background: #F7F6F2; }
-
-  /* Metric cards */
-  .metric-card {
-    background: #1E2761;
-    border-radius: 12px;
-    padding: 1.2rem 1.5rem;
-    color: white;
-    margin-bottom: 0.5rem;
-  }
-  .metric-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.7; margin: 0; }
-  .metric-value { font-size: 32px; font-weight: 500; margin: 4px 0 0; font-family: 'DM Serif Display', serif; }
-  .metric-sub   { font-size: 12px; opacity: 0.6; margin: 2px 0 0; }
-
-  /* Section headers */
-  .section-label {
-    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
-    color: #3A86FF; font-weight: 500; margin-bottom: 4px;
-  }
-
-  /* Filing pill */
-  .pill-8k  { background:#FEE2E2; color:#991B1B; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:500; }
-  .pill-10k { background:#DBEAFE; color:#1E40AF; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:500; }
-
-  /* News card */
-  .news-card {
-    background: white; border-radius: 10px; padding: 14px 16px;
-    border-left: 3px solid #3A86FF; margin-bottom: 10px;
-  }
-  .news-title  { font-size: 14px; font-weight: 500; color: #1E2761; margin: 0 0 4px; }
-  .news-meta   { font-size: 11px; color: #888; margin: 0; }
-  .cat-earnings   { color:#059669; font-weight:500; }
-  .cat-ma         { color:#7C3AED; font-weight:500; }
-  .cat-macro      { color:#D97706; font-weight:500; }
-  .cat-regulatory { color:#DC2626; font-weight:500; }
-  .cat-general    { color:#6B7280; font-weight:500; }
-
-  /* Hide Streamlit branding */
-  #MainMenu, footer, header { visibility: hidden; }
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap');
+  html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+  h1, h2, h3 { font-family: 'Syne', sans-serif !important; font-weight: 700 !important; letter-spacing: -0.02em; }
+  [data-testid="stSidebar"] { background: #080E1D; }
+  [data-testid="stSidebar"] * { color: #CBD5E1 !important; }
+  [data-testid="stSidebar"] hr { border-color: #1E293B !important; }
+  .main { background: #F8FAFF; }
   .block-container { padding-top: 1.5rem; }
+  .kpi { background: linear-gradient(135deg,#080E1D,#162040); border-radius:14px;
+         padding:1.3rem 1.5rem; color:white; border:1px solid #1E3A5F; margin-bottom:.5rem; }
+  .kpi-l { font-size:9px; letter-spacing:.14em; text-transform:uppercase; opacity:.5; margin:0; }
+  .kpi-v { font-family:'Syne',sans-serif; font-size:32px; font-weight:700; margin:4px 0 2px; letter-spacing:-.03em; }
+  .kpi-s { font-size:11px; opacity:.45; margin:0; }
+  .sec { font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:#3A86FF; font-weight:600; margin-bottom:2px; }
+  .news-card { background:white; border-radius:12px; padding:14px 16px;
+               border-left:3px solid #3A86FF; margin-bottom:10px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+  .news-title { font-size:13px; font-weight:500; color:#080E1D; margin:0 0 4px; line-height:1.4; }
+  .news-meta  { font-size:11px; color:#94A3B8; margin:0; }
+  .badge { display:inline-block; padding:1px 8px; border-radius:20px; font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+  .be { background:#D1FAE5; color:#065F46; }
+  .bm { background:#EDE9FE; color:#4C1D95; }
+  .bk { background:#FEF3C7; color:#92400E; }
+  .br { background:#FEE2E2; color:#991B1B; }
+  .bg { background:#F1F5F9; color:#475569; }
+  .b8 { background:#FEE2E2; color:#991B1B; }
+  .b10{ background:#DBEAFE; color:#1E40AF; }
+  .tk { font-family:'JetBrains Mono',monospace; font-size:11px; background:#EFF6FF;
+        color:#1D4ED8; padding:1px 7px; border-radius:5px; font-weight:500; }
+  .insight { background:#EFF6FF; border:1px solid #BFDBFE; border-radius:12px;
+             padding:12px 16px; margin-bottom:1rem; font-size:13px; color:#1E40AF; line-height:1.6; }
+  #MainMenu, footer, header { visibility:hidden; }
 </style>
 """, unsafe_allow_html=True)
 
+NAVY = "#080E1D"
+BLUE = "#3A86FF"
 
-# ── Connection helpers ────────────────────────────────────────────────────────
+def fig_style(fig, h=300):
+    fig.update_layout(
+        plot_bgcolor="white", paper_bgcolor="white", font_family="Inter",
+        margin=dict(l=8,r=8,t=28,b=8), height=h,
+        xaxis=dict(showgrid=False, showline=True, linecolor="#E2E8F0", title=""),
+        yaxis=dict(showgrid=True, gridcolor="#F1F5F9", title=""),
+        legend=dict(bgcolor="rgba(0,0,0,0)", borderwidth=0),
+        hoverlabel=dict(bgcolor="white", font_size=12),
+    )
+    return fig
 
+
+# ── Connections ────────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
-def get_pg_conn():
-    """Connect to PostgreSQL (Supabase). Reads from st.secrets or env vars."""
+def pg():
     import psycopg2
     try:
-        # Try Streamlit secrets first (for Streamlit Cloud deployment)
-        if "postgres" in st.secrets:
+        if hasattr(st,"secrets") and "postgres" in st.secrets:
             s = st.secrets["postgres"]
-            conn = psycopg2.connect(
-                host=s["host"], port=s.get("port", 5432),
-                dbname=s["dbname"], user=s["user"],
-                password=s["password"], sslmode="require",
-                connect_timeout=10,
-            )
+            h,port,db,u,pw = str(s["host"]).strip(),int(s.get("port",5432)),str(s["dbname"]).strip(),str(s["user"]).strip(),str(s["password"]).strip()
         else:
-            # Fall back to environment variables (local .env)
-            conn = psycopg2.connect(
-                host=os.getenv("SUPABASE_HOST"),
-                port=int(os.getenv("SUPABASE_PORT", "5432")),
-                dbname=os.getenv("SUPABASE_DB", "postgres"),
-                user=os.getenv("SUPABASE_USER"),
-                password=os.getenv("SUPABASE_PASSWORD"),
-                sslmode="require",
-                connect_timeout=10,
-            )
-        return conn
+            from dotenv import load_dotenv; load_dotenv()
+            h,port,db,u,pw = os.getenv("SUPABASE_HOST","").strip(),int(os.getenv("SUPABASE_PORT","5432")),os.getenv("SUPABASE_DB","postgres"),os.getenv("SUPABASE_USER","").strip(),os.getenv("SUPABASE_PASSWORD","").strip()
+        if not h: st.error("SUPABASE_HOST empty"); return None
+        return psycopg2.connect(host=h,port=port,dbname=db,user=u,password=pw,sslmode="require",connect_timeout=10)
     except Exception as e:
-        st.error(f"PostgreSQL connection failed: {e}")
-        return None
-
+        st.error(f"PostgreSQL failed: {e}"); return None
 
 @st.cache_resource(show_spinner=False)
-def get_mongo_client():
-    """Connect to MongoDB (Atlas). Reads from st.secrets or env vars."""
+def mongo():
     from pymongo import MongoClient
     try:
-        uri = st.secrets.get("MONGO_URI", os.getenv("MONGO_URI", ""))
-        client = MongoClient(uri, serverSelectionTimeoutMS=5000)
-        client.admin.command("ping")
-        return client
+        uri = str(st.secrets.get("MONGO_URI","")).strip() if hasattr(st,"secrets") else ""
+        if not uri:
+            from dotenv import load_dotenv; load_dotenv()
+            uri = os.getenv("MONGO_URI","").strip()
+        if not uri: st.error("MONGO_URI empty"); return None
+        c = MongoClient(uri, serverSelectionTimeoutMS=5000)
+        c.admin.command("ping"); return c
     except Exception as e:
-        st.error(f"MongoDB connection failed: {e}")
-        return None
+        st.error(f"MongoDB failed: {e}"); return None
 
-
-def pg_query(sql: str, params=None) -> pd.DataFrame:
-    """Run a SQL query and return a DataFrame."""
-    conn = get_pg_conn()
-    if conn is None:
-        return pd.DataFrame()
+@st.cache_data(ttl=300, show_spinner=False)
+def q(sql, params=None):
+    conn = pg()
+    if conn is None: return pd.DataFrame()
     try:
         return pd.read_sql_query(sql, conn, params=params)
     except Exception as e:
-        st.warning(f"Query error: {e}")
-        return pd.DataFrame()
+        st.warning(f"Query: {e}"); return pd.DataFrame()
 
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### 📊 Financial Intelligence")
-    st.markdown("**Group 7** · Columbia University")
-    st.markdown("---")
-
-    page = st.radio(
-        "Navigation",
-        ["Overview", "Market Data", "SEC Filings", "News Feed", "Cross-Source Analysis"],
-        label_visibility="collapsed",
-    )
-
-    st.markdown("---")
-
-    # Date filter
-    st.markdown("**Date range**")
-    col1, col2 = st.columns(2)
-    with col1:
-        start_date = st.date_input("From", value=date(2024, 1, 1), label_visibility="collapsed")
-    with col2:
-        end_date = st.date_input("To", value=date.today(), label_visibility="collapsed")
-
-    # Ticker filter
-    st.markdown("**Tickers**")
-    ticker_options = ["All", "AAPL", "MSFT", "GOOGL", "JPM", "BAC", "GS"]
-    selected_tickers = st.multiselect("", ticker_options, default=["All"], label_visibility="collapsed")
-    if "All" in selected_tickers or not selected_tickers:
-        ticker_filter = ticker_options[1:]  # all real tickers
-    else:
-        ticker_filter = selected_tickers
-
-    st.markdown("---")
     st.markdown("""
-    <div style='font-size:11px;color:#999;line-height:1.6'>
-    <b>Data sources</b><br>
-    NewsAPI · SEC Edgar · FRED<br><br>
-    <b>Stack</b><br>
-    Kafka · PySpark · PostgreSQL · MongoDB
-    </div>
-    """, unsafe_allow_html=True)
+    <div style='padding:6px 0 14px'>
+      <p style='font-family:Syne;font-size:15px;font-weight:700;color:#E2E8F0;margin:0'>📈 FinIntel</p>
+      <p style='font-size:10px;color:#475569;margin:2px 0 0'>Group 7 · Columbia University</p>
+    </div>""", unsafe_allow_html=True)
+
+    page = st.radio("", ["🏠 Overview","📊 Market Data","📁 SEC Filings",
+                         "📰 News Feed","🔗 Cross-Source","ℹ️ About"],
+                    label_visibility="collapsed")
+    page = page.split(" ",1)[1]
+
+    st.markdown("---")
+    st.markdown('<p style="font-size:9px;color:#475569;letter-spacing:.1em">DATE RANGE</p>', unsafe_allow_html=True)
+    preset = st.selectbox("", ["Last 30 days","Last 90 days","Last 1 year","Last 5 years","Since 2010","Custom"],
+                          label_visibility="collapsed")
+    today = date.today()
+    presets = {"Last 30 days":30,"Last 90 days":90,"Last 1 year":365,"Last 5 years":1825}
+    if preset in presets:
+        sd, ed = today-timedelta(days=presets[preset]), today
+    elif preset == "Since 2010":
+        sd, ed = date(2010,1,1), today
+    else:
+        sd = st.date_input("From", value=date(2020,1,1))
+        ed = st.date_input("To",   value=today)
+
+    st.markdown("---")
+    st.markdown('<p style="font-size:9px;color:#475569;letter-spacing:.1em">SECTOR FILTER</p>', unsafe_allow_html=True)
+    sectors = {
+        "All": ["AAPL","MSFT","GOOGL","AMZN","META","NVDA","TSLA","NFLX","ORCL","ADBE","JPM","BAC","GS","MS","WFC","C","BLK","AXP","V","MA","JNJ","PFE","UNH","ABBV","MRK","XOM","CVX","COP","WMT","KO","PEP","MCD","NKE","BA","CAT","HON"],
+        "Big Tech": ["AAPL","MSFT","GOOGL","AMZN","META","NVDA","TSLA","NFLX","ORCL","ADBE"],
+        "Finance":  ["JPM","BAC","GS","MS","WFC","C","BLK","AXP","V","MA"],
+        "Healthcare":["JNJ","PFE","UNH","ABBV","MRK"],
+        "Energy":   ["XOM","CVX","COP"],
+        "Consumer": ["WMT","KO","PEP","MCD","NKE"],
+        "Industrial":["BA","CAT","HON"],
+    }
+    sec_sel = st.selectbox("", list(sectors.keys()), label_visibility="collapsed")
+    pool = sectors[sec_sel]
+    tickers = st.multiselect("Tickers", pool, default=pool[:6])
+    if not tickers: tickers = pool
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PAGE: OVERVIEW
+# OVERVIEW
 # ══════════════════════════════════════════════════════════════════════════════
 if page == "Overview":
-
-    st.markdown('<p class="section-label">Financial Intelligence Platform</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sec">Financial Intelligence Platform</p>', unsafe_allow_html=True)
     st.title("Market Overview")
-    st.markdown(f"*Data as of {date.today().strftime('%B %d, %Y')} · Supabase + MongoDB Atlas*")
+    st.caption(f"Live data · {today.strftime('%B %d, %Y')} · Supabase + MongoDB Atlas")
 
-    # ── KPI row ───────────────────────────────────────────────────────────────
-    counts = pg_query("""
-        SELECT
-            (SELECT COUNT(*) FROM market_data)    AS market_rows,
-            (SELECT COUNT(*) FROM sec_filings)    AS filing_rows,
-            (SELECT COUNT(*) FROM news_sentiment) AS news_rows,
-            (SELECT COUNT(DISTINCT series_code) FROM market_data) AS series_count,
-            (SELECT COUNT(DISTINCT ticker) FROM sec_filings)      AS ticker_count
-    """)
+    counts = q("""SELECT
+        (SELECT COUNT(*) FROM market_data) market_rows,
+        (SELECT COUNT(*) FROM sec_filings) filing_rows,
+        (SELECT COUNT(*) FROM news_sentiment) news_rows,
+        (SELECT COUNT(DISTINCT series_code) FROM market_data) series_count,
+        (SELECT COUNT(DISTINCT ticker) FROM sec_filings) ticker_count""")
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    def kpi(col, label, value, sub=""):
+    c1,c2,c3,c4,c5 = st.columns(5)
+    def kpi(col,lbl,val,sub=""):
         with col:
-            st.markdown(f"""
-            <div class="metric-card">
-              <p class="metric-label">{label}</p>
-              <p class="metric-value">{value}</p>
-              <p class="metric-sub">{sub}</p>
-            </div>""", unsafe_allow_html=True)
-
+            st.markdown(f'<div class="kpi"><p class="kpi-l">{lbl}</p><p class="kpi-v">{val}</p><p class="kpi-s">{sub}</p></div>', unsafe_allow_html=True)
     if not counts.empty:
         r = counts.iloc[0]
-        kpi(c1, "Market data points", f"{int(r.market_rows):,}", f"{int(r.series_count)} series")
-        kpi(c2, "SEC filings",        f"{int(r.filing_rows):,}", f"{int(r.ticker_count)} companies")
-        kpi(c3, "News articles",      f"{int(r.news_rows):,}",  "indexed headlines")
-        kpi(c4, "Data sources",       "3", "NewsAPI · Edgar · FRED")
-        kpi(c5, "Technologies",       "5", "Kafka·Spark·PG·Mongo·Airflow")
+        kpi(c1,"Market data points",f"{int(r.market_rows):,}",f"{int(r.series_count)} FRED series")
+        kpi(c2,"SEC filings",f"{int(r.filing_rows):,}",f"{int(r.ticker_count)} companies")
+        kpi(c3,"News articles",f"{int(r.news_rows):,}","indexed")
+        kpi(c4,"Data sources","3","NewsAPI · Edgar · FRED")
+        kpi(c5,"Technologies","5","Kafka·Spark·PG·Mongo·Airflow")
 
     st.markdown("---")
-
-    # ── Two charts side by side ───────────────────────────────────────────────
-    left, right = st.columns(2)
-
-    with left:
-        st.markdown('<p class="section-label">S&P 500 — recent trend</p>', unsafe_allow_html=True)
-        sp = pg_query("""
-            SELECT date, value FROM market_data
-            WHERE series_code = 'SP500'
-            ORDER BY date DESC LIMIT 90
-        """)
+    col1,col2 = st.columns([3,2])
+    with col1:
+        st.markdown('<p class="sec">S&P 500</p>', unsafe_allow_html=True)
+        sp = q("SELECT date,value FROM market_data WHERE series_code='SP500' ORDER BY date")
         if not sp.empty:
-            sp = sp.sort_values("date")
-            fig = px.area(sp, x="date", y="value",
-                          color_discrete_sequence=["#3A86FF"])
-            fig.update_layout(
-                margin=dict(l=0, r=0, t=10, b=0),
-                plot_bgcolor="white", paper_bgcolor="white",
-                xaxis=dict(showgrid=False, title=""),
-                yaxis=dict(showgrid=True, gridcolor="#F0F0F0", title=""),
-                height=240,
-            )
-            fig.update_traces(fillcolor="rgba(58,134,255,0.1)", line_width=2)
-            st.plotly_chart(fig, use_container_width=True)
+            sp["date"] = pd.to_datetime(sp["date"])
+            show_ma = st.checkbox("50-day MA", value=True)
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=sp["date"],y=sp["value"],name="S&P 500",
+                                     line=dict(color=BLUE,width=2),fill="tozeroy",
+                                     fillcolor="rgba(58,134,255,0.06)"))
+            if show_ma and len(sp)>=50:
+                sp["ma"]=sp["value"].rolling(50).mean()
+                fig.add_trace(go.Scatter(x=sp["date"],y=sp["ma"],name="50d MA",
+                                         line=dict(color="#FF6B6B",width=1.5,dash="dot")))
+            fig_style(fig,290); fig.update_xaxes(rangeslider_visible=True,rangeslider_thickness=0.05)
+            st.plotly_chart(fig,use_container_width=True)
         else:
-            st.info("No S&P 500 data yet — run the pipeline first")
+            st.info("No S&P 500 data — run pipeline first")
 
-    with right:
-        st.markdown('<p class="section-label">Filings by company</p>', unsafe_allow_html=True)
-        filings_by_co = pg_query("""
-            SELECT ticker, COUNT(*) AS filings
-            FROM sec_filings
-            GROUP BY ticker ORDER BY filings DESC LIMIT 8
-        """)
-        if not filings_by_co.empty:
-            fig2 = px.bar(filings_by_co, x="ticker", y="filings",
-                          color_discrete_sequence=["#1E2761"])
-            fig2.update_layout(
-                margin=dict(l=0, r=0, t=10, b=0),
-                plot_bgcolor="white", paper_bgcolor="white",
-                xaxis=dict(showgrid=False, title=""),
-                yaxis=dict(showgrid=True, gridcolor="#F0F0F0", title="Count"),
-                height=240, showlegend=False,
-            )
-            st.plotly_chart(fig2, use_container_width=True)
-        else:
-            st.info("No filings data yet")
+    with col2:
+        st.markdown('<p class="sec">Filings by company</p>', unsafe_allow_html=True)
+        ph=",".join(["%s"]*len(tickers))
+        fb=q(f"SELECT ticker,form_type,COUNT(*) n FROM sec_filings WHERE ticker IN ({ph}) GROUP BY ticker,form_type ORDER BY ticker",params=tuple(tickers))
+        if not fb.empty:
+            fig2=px.bar(fb,x="ticker",y="n",color="form_type",barmode="stack",
+                        color_discrete_map={"8-K":"#FF6B6B","10-K":BLUE})
+            fig_style(fig2,290); st.plotly_chart(fig2,use_container_width=True)
 
-    # ── Recent filings table ──────────────────────────────────────────────────
     st.markdown("---")
-    st.markdown('<p class="section-label">Most recent SEC filings</p>', unsafe_allow_html=True)
-    recent_filings = pg_query("""
-        SELECT ticker, company_name, form_type, filed_at, period, is_material_event
-        FROM sec_filings
-        ORDER BY filed_at DESC LIMIT 10
-    """)
-    if not recent_filings.empty:
-        st.dataframe(
-            recent_filings.rename(columns={
-                "ticker": "Ticker", "company_name": "Company",
-                "form_type": "Form", "filed_at": "Filed",
-                "period": "Period", "is_material_event": "Material Event"
-            }),
-            use_container_width=True, hide_index=True,
-        )
+    col3,col4 = st.columns([2,3])
+    with col3:
+        st.markdown('<p class="sec">Live macro snapshot</p>', unsafe_allow_html=True)
+        macro=q("SELECT DISTINCT ON (series_code) series_code,series_name,value,date FROM market_data WHERE series_code IN ('DFF','CPIAUCSL','UNRATE','GS10','VIXCLS') ORDER BY series_code,date DESC")
+        labels={"DFF":"Fed Funds Rate","CPIAUCSL":"CPI","UNRATE":"Unemployment","GS10":"10Y Treasury","VIXCLS":"VIX"}
+        if not macro.empty:
+            for _,row in macro.iterrows():
+                st.metric(labels.get(row["series_code"],row["series_code"]), f"{row['value']:.2f}")
+
+    with col4:
+        st.markdown('<p class="sec">Most recent filings</p>', unsafe_allow_html=True)
+        rf=q("SELECT ticker,company_name,form_type,filed_at FROM sec_filings ORDER BY filed_at DESC LIMIT 12")
+        if not rf.empty:
+            rf["filed_at"]=pd.to_datetime(rf["filed_at"]).dt.strftime("%Y-%m-%d")
+            st.dataframe(rf.rename(columns={"ticker":"Ticker","company_name":"Company","form_type":"Form","filed_at":"Filed"}),use_container_width=True,hide_index=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PAGE: MARKET DATA
+# MARKET DATA
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "Market Data":
-
-    st.markdown('<p class="section-label">FRED Economic Indicators</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sec">FRED Economic Indicators</p>', unsafe_allow_html=True)
     st.title("Market & Economic Data")
 
-    # Series selector
-    series_df = pg_query("SELECT DISTINCT series_code, series_name FROM market_data ORDER BY series_code")
-    if series_df.empty:
-        st.info("No market data yet — run the pipeline first")
-        st.stop()
+    sdf=q("SELECT DISTINCT series_code,series_name FROM market_data ORDER BY series_code")
+    if sdf.empty: st.info("No market data yet"); st.stop()
 
-    series_options = {row["series_name"]: row["series_code"] for _, row in series_df.iterrows()}
-    selected_series_name = st.selectbox("Select indicator", list(series_options.keys()))
-    selected_code = series_options[selected_series_name]
+    opts={r["series_name"]:r["series_code"] for _,r in sdf.iterrows()}
+    c1,c2,c3,c4 = st.columns(4)
+    with c1: sel_name=st.selectbox("Indicator",list(opts.keys()))
+    with c2: chart_t=st.selectbox("Chart type",["Line","Area","Bar"])
+    with c3: log_s=st.checkbox("Log scale")
+    with c4: compare=st.checkbox("Compare mode")
 
-    # Fetch selected series
-    data = pg_query("""
-        SELECT date, value FROM market_data
-        WHERE series_code = %s AND date BETWEEN %s AND %s
-        ORDER BY date
-    """, params=(selected_code, start_date, end_date))
+    code=opts[sel_name]
+    data=q("SELECT date,value FROM market_data WHERE series_code=%s AND date BETWEEN %s AND %s ORDER BY date",params=(code,sd,ed))
 
-    if data.empty:
-        st.warning("No data for selected range")
-    else:
-        # Stats row
-        latest = data.iloc[-1]["value"]
-        oldest = data.iloc[0]["value"]
-        change = latest - oldest
-        pct    = (change / oldest * 100) if oldest else 0
+    if data.empty: st.warning("No data for this range"); st.stop()
+    data["date"]=pd.to_datetime(data["date"])
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Latest value",    f"{latest:,.4f}")
-        c2.metric("Start of period", f"{oldest:,.4f}")
-        c3.metric("Change",          f"{change:+,.4f}")
-        c4.metric("% Change",        f"{pct:+.2f}%")
+    lat,old=data.iloc[-1]["value"],data.iloc[0]["value"]
+    chg=lat-old; pct=(chg/old*100) if old else 0
+    m1,m2,m3,m4,m5=st.columns(5)
+    m1.metric("Latest",f"{lat:,.4f}")
+    m2.metric("Period start",f"{old:,.4f}")
+    m3.metric("Change",f"{chg:+,.4f}",delta=f"{pct:+.2f}%")
+    m4.metric("High",f"{data['value'].max():,.4f}")
+    m5.metric("Low",f"{data['value'].min():,.4f}")
 
-        st.markdown("---")
-
-        # Main chart
-        fig = px.line(data, x="date", y="value",
-                      title=selected_series_name,
-                      color_discrete_sequence=["#1E2761"])
-        fig.update_layout(
-            plot_bgcolor="white", paper_bgcolor="white",
-            xaxis=dict(showgrid=False, title=""),
-            yaxis=dict(showgrid=True, gridcolor="#F0F0F0", title="Value"),
-            title_font=dict(family="DM Serif Display", size=18),
-            margin=dict(l=0, r=0, t=40, b=0), height=380,
-        )
-        fig.update_traces(line_width=2)
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Data table toggle
-        if st.checkbox("Show raw data table"):
-            st.dataframe(data.sort_values("date", ascending=False), use_container_width=True, hide_index=True)
-
-    # ── All series summary ────────────────────────────────────────────────────
     st.markdown("---")
-    st.markdown('<p class="section-label">All indicators — latest values</p>', unsafe_allow_html=True)
 
-    summary = pg_query("""
-        SELECT series_code, series_name,
-               MAX(date)   AS latest_date,
-               ROUND(MAX(value) FILTER (WHERE date = (SELECT MAX(d2.date) FROM market_data d2 WHERE d2.series_code = d1.series_code))::numeric, 4) AS latest_value,
-               COUNT(*)    AS data_points
-        FROM market_data d1
-        GROUP BY series_code, series_name
-        ORDER BY series_code
-    """)
-    if not summary.empty:
-        st.dataframe(summary.rename(columns={
-            "series_code": "Code", "series_name": "Indicator",
-            "latest_date": "Latest Date", "latest_value": "Latest Value",
-            "data_points": "Data Points"
-        }), use_container_width=True, hide_index=True)
+    if compare:
+        comp_sel=st.multiselect("Compare indicators",list(opts.keys()),default=list(opts.keys())[:4])
+        fig=go.Figure()
+        for nm in comp_sel:
+            cd=opts[nm]
+            df=q("SELECT date,value FROM market_data WHERE series_code=%s AND date BETWEEN %s AND %s ORDER BY date",params=(cd,sd,ed))
+            if not df.empty:
+                df["date"]=pd.to_datetime(df["date"]); base=df.iloc[0]["value"]
+                df["norm"]=df["value"]/base*100
+                fig.add_trace(go.Scatter(x=df["date"],y=df["norm"],name=nm[:30],mode="lines",line=dict(width=2)))
+        fig_style(fig,380); fig.update_layout(title="Normalized to 100 at period start",yaxis_title="Index")
+        st.plotly_chart(fig,use_container_width=True)
+    else:
+        ma_w=st.slider("Moving average (days, 0=off)",0,200,0,10)
+        rec=st.checkbox("Show recession bands (2001, 2008, 2020)")
+        fig=go.Figure()
+        if chart_t=="Area":
+            fig.add_trace(go.Scatter(x=data["date"],y=data["value"],name=sel_name,fill="tozeroy",fillcolor="rgba(58,134,255,0.08)",line=dict(color=BLUE,width=2)))
+        elif chart_t=="Bar":
+            fig.add_trace(go.Bar(x=data["date"],y=data["value"],name=sel_name,marker_color=BLUE,opacity=0.7))
+        else:
+            fig.add_trace(go.Scatter(x=data["date"],y=data["value"],name=sel_name,line=dict(color=BLUE,width=2)))
+        if ma_w>0:
+            data["ma"]=data["value"].rolling(ma_w).mean()
+            fig.add_trace(go.Scatter(x=data["date"],y=data["ma"],name=f"{ma_w}d MA",line=dict(color="#FF6B6B",width=1.5,dash="dot")))
+        if rec:
+            for rs,re,lbl in [("2001-03-01","2001-11-01","Dot-com"),("2007-12-01","2009-06-01","GFC"),("2020-02-01","2020-04-01","COVID")]:
+                fig.add_vrect(x0=rs,x1=re,fillcolor="rgba(255,107,107,0.1)",line_width=0,annotation_text=lbl,annotation_font_size=10)
+        if log_s: fig.update_yaxes(type="log")
+        fig_style(fig,400); fig.update_layout(title=sel_name)
+        fig.update_xaxes(rangeslider_visible=True,rangeslider_thickness=0.05)
+        st.plotly_chart(fig,use_container_width=True)
+
+    st.markdown("---")
+    a1,a2=st.columns(2)
+    with a1:
+        st.markdown('<p class="sec">Value distribution</p>', unsafe_allow_html=True)
+        fh=px.histogram(data,x="value",nbins=50,color_discrete_sequence=[BLUE])
+        fig_style(fh,200); st.plotly_chart(fh,use_container_width=True)
+    with a2:
+        st.markdown('<p class="sec">Period-over-period % change</p>', unsafe_allow_html=True)
+        data["pct"]=data["value"].pct_change()*100
+        fc=px.bar(data.dropna(),x="date",y="pct",color="pct",
+                  color_continuous_scale=["#FF6B6B","#F8FAFF",BLUE],color_continuous_midpoint=0)
+        fig_style(fc,200); fc.update_coloraxes(showscale=False)
+        st.plotly_chart(fc,use_container_width=True)
+
+    if st.checkbox("Show raw data + download"):
+        st.dataframe(data.sort_values("date",ascending=False).head(500),use_container_width=True,hide_index=True)
+        st.download_button("Download CSV",data.to_csv(index=False),f"{code}.csv","text/csv")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PAGE: SEC FILINGS
+# SEC FILINGS
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "SEC Filings":
-
-    st.markdown('<p class="section-label">SEC Edgar</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sec">SEC Edgar</p>', unsafe_allow_html=True)
     st.title("SEC Filings Explorer")
 
-    # Filters row
-    f1, f2, f3 = st.columns(3)
-    with f1:
-        form_filter = st.selectbox("Form type", ["All", "8-K", "10-K"])
-    with f2:
-        sort_by = st.selectbox("Sort by", ["Filed date (newest)", "Filed date (oldest)", "Ticker A-Z"])
-    with f3:
-        material_only = st.checkbox("Material events (8-K) only", value=False)
+    f1,f2,f3,f4=st.columns(4)
+    with f1: form_f=st.selectbox("Form type",["All","8-K","10-K"])
+    with f2: sort_f=st.selectbox("Sort",["Filed (newest)","Filed (oldest)","Ticker A-Z"])
+    with f3: mat_f=st.checkbox("8-K only")
+    with f4: co_s=st.text_input("Search company","")
 
-    # Build query
-    conditions = ["filed_at BETWEEN %s AND %s"]
-    params = [start_date, end_date]
+    conds=["filed_at BETWEEN %s AND %s"]; params=[sd,ed]
+    ph=",".join(["%s"]*len(tickers)); conds.append(f"ticker IN ({ph})"); params.extend(tickers)
+    if form_f!="All": conds.append("form_type=%s"); params.append(form_f)
+    if mat_f: conds.append("is_material_event=TRUE")
+    if co_s: conds.append("LOWER(company_name) LIKE %s"); params.append(f"%{co_s.lower()}%")
+    order={"Filed (newest)":"filed_at DESC","Filed (oldest)":"filed_at ASC","Ticker A-Z":"ticker ASC"}[sort_f]
 
-    if ticker_filter:
-        placeholders = ",".join(["%s"] * len(ticker_filter))
-        conditions.append(f"ticker IN ({placeholders})")
-        params.extend(ticker_filter)
+    fil=q(f"SELECT ticker,company_name,form_type,filed_at,period,is_material_event,document_url FROM sec_filings WHERE {' AND '.join(conds)} ORDER BY {order}",params=tuple(params))
 
-    if form_filter != "All":
-        conditions.append("form_type = %s")
-        params.append(form_filter)
+    if fil.empty: st.info("No filings match filters"); st.stop()
 
-    if material_only:
-        conditions.append("is_material_event = TRUE")
+    k1,k2,k3,k4=st.columns(4)
+    k1.metric("Total",len(fil)); k2.metric("8-K",int(fil["is_material_event"].sum()))
+    k3.metric("10-K",int((fil["form_type"]=="10-K").sum())); k4.metric("Companies",fil["ticker"].nunique())
 
-    order = {"Filed date (newest)": "filed_at DESC",
-             "Filed date (oldest)": "filed_at ASC",
-             "Ticker A-Z":          "ticker ASC"}[sort_by]
+    st.markdown("---")
+    ch1,ch2,ch3=st.columns(3)
+    with ch1:
+        st.markdown('<p class="sec">By form type</p>', unsafe_allow_html=True)
+        bd=fil["form_type"].value_counts().reset_index(); bd.columns=["Form","n"]
+        fp=px.pie(bd,names="Form",values="n",color_discrete_sequence=[BLUE,"#FF6B6B"],hole=0.5)
+        fp.update_layout(margin=dict(l=0,r=0,t=10,b=0),height=200,paper_bgcolor="white")
+        st.plotly_chart(fp,use_container_width=True)
+    with ch2:
+        st.markdown('<p class="sec">Monthly timeline</p>', unsafe_allow_html=True)
+        tl=fil.copy(); tl["filed_at"]=pd.to_datetime(tl["filed_at"]); tl["month"]=tl["filed_at"].dt.to_period("M").astype(str)
+        ml=tl.groupby(["month","form_type"]).size().reset_index(name="n")
+        ft=px.bar(ml,x="month",y="n",color="form_type",barmode="stack",color_discrete_map={"8-K":"#FF6B6B","10-K":BLUE})
+        fig_style(ft,200); st.plotly_chart(ft,use_container_width=True)
+    with ch3:
+        st.markdown('<p class="sec">By ticker</p>', unsafe_allow_html=True)
+        bt=fil.groupby("ticker").size().reset_index(name="n").sort_values("n",ascending=True)
+        fb2=px.bar(bt,x="n",y="ticker",orientation="h",color_discrete_sequence=[BLUE])
+        fig_style(fb2,200); st.plotly_chart(fb2,use_container_width=True)
 
-    where = " AND ".join(conditions)
-    filings = pg_query(f"""
-        SELECT ticker, company_name, form_type, filed_at, period,
-               is_material_event, document_url
-        FROM sec_filings
-        WHERE {where}
-        ORDER BY {order}
-    """, params=tuple(params))
+    st.markdown("---")
+    disp=fil[["ticker","company_name","form_type","filed_at","period","is_material_event"]].copy()
+    disp.columns=["Ticker","Company","Form","Filed","Period","Material"]
+    st.dataframe(disp,use_container_width=True,hide_index=True)
+    st.download_button("Download CSV",fil.to_csv(index=False),"filings.csv","text/csv")
 
-    # Summary stats
-    if not filings.empty:
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Filings found",   len(filings))
-        c2.metric("8-K (material)",  int(filings["is_material_event"].sum()))
-        c3.metric("Companies",       filings["ticker"].nunique())
-
-        st.markdown("---")
-
-        # Form type breakdown chart
-        breakdown = filings["form_type"].value_counts().reset_index()
-        breakdown.columns = ["Form Type", "Count"]
-        fig = px.pie(breakdown, names="Form Type", values="Count",
-                     color_discrete_sequence=["#1E2761", "#3A86FF", "#CADCFC"])
-        fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=200,
-                          showlegend=True, paper_bgcolor="white")
-        left, right = st.columns([1, 2])
-        with left:
-            st.plotly_chart(fig, use_container_width=True)
-        with right:
-            st.markdown('<p class="section-label">Filing timeline</p>', unsafe_allow_html=True)
-            timeline = filings.copy()
-            timeline["filed_at"] = pd.to_datetime(timeline["filed_at"])
-            timeline_count = timeline.groupby(["filed_at", "form_type"]).size().reset_index(name="count")
-            fig2 = px.bar(timeline_count, x="filed_at", y="count", color="form_type",
-                          color_discrete_map={"8-K": "#1E2761", "10-K": "#3A86FF"},
-                          barmode="stack")
-            fig2.update_layout(
-                margin=dict(l=0, r=0, t=10, b=0), height=200,
-                plot_bgcolor="white", paper_bgcolor="white",
-                xaxis=dict(showgrid=False, title=""), yaxis=dict(title="Count"),
-                legend_title="Form", showlegend=True,
-            )
-            st.plotly_chart(fig2, use_container_width=True)
-
-        st.markdown("---")
-        st.markdown('<p class="section-label">Filing records</p>', unsafe_allow_html=True)
-
-        # Display with clickable URLs
-        display_df = filings[["ticker", "company_name", "form_type", "filed_at", "period", "is_material_event"]].copy()
-        display_df.columns = ["Ticker", "Company", "Form", "Filed", "Period", "Material"]
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-        # Show document links separately
-        with st.expander("Document links"):
-            for _, row in filings.iterrows():
-                if row["document_url"]:
-                    badge = "🔴 8-K" if row["form_type"] == "8-K" else "🔵 10-K"
-                    st.markdown(f"{badge} **{row['ticker']}** — [{row['company_name']}]({row['document_url']}) ({row['filed_at']})")
-    else:
-        st.info("No filings match your filters")
+    with st.expander(f"Document links ({fil['document_url'].notna().sum()} available)"):
+        for _,row in fil[fil["document_url"].notna()].iterrows():
+            ico="🔴" if row["form_type"]=="8-K" else "🔵"
+            st.markdown(f"{ico} **{row['ticker']}** [{row['company_name']}]({row['document_url']}) · {row['filed_at']}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PAGE: NEWS FEED
+# NEWS FEED
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "News Feed":
-
-    st.markdown('<p class="section-label">NewsAPI</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sec">NewsAPI</p>', unsafe_allow_html=True)
     st.title("Financial News Feed")
 
-    # Category filter
-    cat_options = ["All", "earnings", "m&a", "macro", "regulatory", "general"]
-    cat_filter = st.selectbox("Filter by category", cat_options)
+    c1,c2,c3=st.columns(3)
+    with c1: cat_f=st.selectbox("Category",["All","earnings","m&a","macro","regulatory","general"])
+    with c2: srch=st.text_input("Search title/source","")
+    with c3: n_art=st.slider("Articles",10,100,30,10)
 
-    # Fetch from MongoDB
-    mongo = get_mongo_client()
-    if mongo is None:
-        st.error("MongoDB not connected")
-        st.stop()
+    view=st.radio("Layout",["Card grid","Compact list"],horizontal=True)
 
-    news_col = mongo["fin_intelligence"]["news_articles"]
+    cat_df=q("SELECT category,COUNT(*) n FROM news_sentiment GROUP BY category ORDER BY n DESC")
+    if not cat_df.empty:
+        fc=px.bar(cat_df,x="category",y="n",color="category",
+                  color_discrete_map={"earnings":"#10B981","m&a":"#8B5CF6","macro":"#F59E0B","regulatory":"#EF4444","general":"#94A3B8"})
+        fig_style(fc,140); fc.update_layout(showlegend=False,margin=dict(l=0,r=0,t=0,b=0))
+        st.plotly_chart(fc,use_container_width=True)
 
-    query = {}
-    if cat_filter != "All":
-        query["category"] = cat_filter
+    mc=mongo()
+    if mc is None: st.stop()
+    nc=mc["fin_intelligence"]["news_articles"]
+    qry={}
+    if cat_f!="All": qry["category"]=cat_f
+    arts=list(nc.find(qry,{"title":1,"source_name":1,"published_at":1,"description":1,"url":1,"category":1,"_id":0}).sort("published_at",-1).limit(n_art))
+    if srch:
+        t=srch.lower()
+        arts=[a for a in arts if t in str(a.get("title","")).lower() or t in str(a.get("source_name","")).lower()]
 
-    articles = list(
-        news_col.find(query, {"title": 1, "source_name": 1, "published_at": 1,
-                              "description": 1, "url": 1, "category": 1, "_id": 0})
-        .sort("published_at", -1)
-        .limit(50)
-    )
-
-    if not articles:
-        st.info("No articles found — run the pipeline to ingest news")
-        st.stop()
-
-    # Category counts
-    cat_counts = pg_query("SELECT category, COUNT(*) AS n FROM news_sentiment GROUP BY category ORDER BY n DESC")
-    if not cat_counts.empty:
-        fig = px.bar(cat_counts, x="category", y="n",
-                     color="category",
-                     color_discrete_map={
-                         "earnings": "#059669", "m&a": "#7C3AED",
-                         "macro": "#D97706", "regulatory": "#DC2626", "general": "#6B7280"
-                     })
-        fig.update_layout(
-            margin=dict(l=0, r=0, t=10, b=0), height=180,
-            plot_bgcolor="white", paper_bgcolor="white",
-            xaxis=dict(showgrid=False, title=""), yaxis=dict(title="Articles"),
-            showlegend=False,
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown(f"**{len(articles)} articles** · sorted by most recent")
+    st.markdown(f"**{len(arts)} articles** · most recent first")
     st.markdown("---")
 
-    cat_colors = {
-        "earnings": "cat-earnings", "m&a": "cat-ma",
-        "macro": "cat-macro", "regulatory": "cat-regulatory", "general": "cat-general"
-    }
+    bmap={"earnings":("be","EARNINGS"),"m&a":("bm","M&A"),"macro":("bk","MACRO"),"regulatory":("br","REGULATORY"),"general":("bg","GENERAL")}
 
-    for a in articles:
-        cat   = a.get("category", "general")
-        title = a.get("title", "Untitled")
-        src   = a.get("source_name", "Unknown")
-        desc  = a.get("description", "") or ""
-        pub   = a.get("published_at", "")[:10] if a.get("published_at") else ""
-        url   = a.get("url", "#")
-        css   = cat_colors.get(cat, "cat-general")
-
-        st.markdown(f"""
-        <div class="news-card">
-          <p class="news-title"><a href="{url}" target="_blank" style="color:#1E2761;text-decoration:none">{title}</a></p>
-          <p class="news-meta">
-            <span class="{css}">{cat.upper()}</span> &nbsp;·&nbsp;
-            {src} &nbsp;·&nbsp; {pub}
-          </p>
-          <p style="font-size:12px;color:#555;margin:6px 0 0;line-height:1.5">{desc[:160]}{"..." if len(desc) > 160 else ""}</p>
-        </div>
-        """, unsafe_allow_html=True)
+    if view=="Card grid":
+        l,r=st.columns(2)
+        for i,a in enumerate(arts):
+            cat=a.get("category","general"); css,lbl=bmap.get(cat,("bg","GENERAL"))
+            title=a.get("title","")[:100]; src=a.get("source_name","?")
+            desc=(a.get("description","") or "")[:130]; pub=str(a.get("published_at",""))[:10]; url=a.get("url","#")
+            html=f'<div class="news-card"><span class="badge {css}">{lbl}</span><p class="news-title" style="margin-top:7px"><a href="{url}" target="_blank" style="color:#080E1D;text-decoration:none">{title}</a></p><p class="news-meta">{src} · {pub}</p><p style="font-size:12px;color:#64748B;margin:5px 0 0;line-height:1.5">{desc}{"..." if len(desc)==130 else ""}</p></div>'
+            (l if i%2==0 else r).markdown(html,unsafe_allow_html=True)
+    else:
+        for a in arts:
+            cat=a.get("category","general"); css,lbl=bmap.get(cat,("bg","GENERAL"))
+            st.markdown(f'<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #F1F5F9"><span class="badge {css}" style="min-width:72px;text-align:center">{lbl}</span><a href="{a.get("url","#")}" target="_blank" style="font-size:13px;color:#080E1D;text-decoration:none;flex:1">{a.get("title","")}</a><span style="font-size:10px;color:#94A3B8;white-space:nowrap">{a.get("source_name","?")} · {str(a.get("published_at",""))[:10]}</span></div>',unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PAGE: CROSS-SOURCE ANALYSIS
+# CROSS-SOURCE
 # ══════════════════════════════════════════════════════════════════════════════
-elif page == "Cross-Source Analysis":
-
-    st.markdown('<p class="section-label">Multi-source intelligence</p>', unsafe_allow_html=True)
+elif page == "Cross-Source":
+    st.markdown('<p class="sec">Multi-source intelligence</p>', unsafe_allow_html=True)
     st.title("Cross-Source Analysis")
-    st.markdown("*The core value of the platform: joining news, filings, and market data on the same timeline.*")
+    st.caption("Joining SEC filings, news headlines, and FRED macro data on a unified timeline.")
 
-    # ── Co-occurrence: filings + news on same date ────────────────────────────
+    tab1,tab2,tab3,tab4=st.tabs(["📌 Filing + News","📈 Market context","🔥 Correlations","🏢 Company drill-down"])
+
+    with tab1:
+        cross=q("""SELECT f.ticker,f.company_name,f.form_type,f.filed_at,COUNT(n.id) news_same_day
+                   FROM sec_filings f LEFT JOIN news_sentiment n ON n.date_only=f.filed_at
+                   GROUP BY f.ticker,f.company_name,f.form_type,f.filed_at
+                   ORDER BY news_same_day DESC,f.filed_at DESC LIMIT 50""")
+        if not cross.empty and cross["news_same_day"].max()>0:
+            cd=cross[cross["news_same_day"]>0]
+            fig=px.scatter(cd,x="filed_at",y="ticker",size="news_same_day",color="form_type",
+                           color_discrete_map={"8-K":"#EF4444","10-K":BLUE},
+                           hover_data={"company_name":True,"news_same_day":True},size_max=35)
+            fig_style(fig,350); fig.update_layout(title="Filing events with concurrent news coverage")
+            st.plotly_chart(fig,use_container_width=True)
+        else:
+            st.markdown('<div class="insight">📌 No date overlaps yet — re-run the pipeline with a wider date range and more keywords in Section 1 (NewsAPI) to increase overlap probability.</div>',unsafe_allow_html=True)
+        st.dataframe(cross.rename(columns={"ticker":"Ticker","company_name":"Company","form_type":"Form","filed_at":"Filed","news_same_day":"News same day"}),use_container_width=True,hide_index=True)
+
+    with tab2:
+        ind=st.selectbox("Indicator to plot",["SP500","DFF","GS10","VIXCLS","CPIAUCSL","UNRATE"])
+        sp=q("SELECT date,value FROM market_data WHERE series_code=%s ORDER BY date",params=(ind,))
+        fd=q("SELECT DISTINCT filed_at date,ticker,form_type FROM sec_filings ORDER BY filed_at")
+        if not sp.empty:
+            sp["date"]=pd.to_datetime(sp["date"])
+            fig2=go.Figure()
+            fig2.add_trace(go.Scatter(x=sp["date"],y=sp["value"],name=ind,line=dict(color=BLUE,width=2),fill="tozeroy",fillcolor="rgba(58,134,255,0.05)"))
+            if not fd.empty:
+                fd["date"]=pd.to_datetime(fd["date"])
+                mg=pd.merge_asof(fd.sort_values("date"),sp.sort_values("date"),on="date",direction="nearest")
+                for ftype,color,sym in [("8-K","#EF4444","diamond"),("10-K","#FFD166","triangle-up")]:
+                    sub=mg[mg["form_type"]==ftype]
+                    if not sub.empty:
+                        fig2.add_trace(go.Scatter(x=sub["date"],y=sub["value"],mode="markers",name=f"{ftype} filing",
+                                                  marker=dict(color=color,size=10,symbol=sym),text=sub["ticker"],
+                                                  hovertemplate="%{text} "+ftype+"<br>%{x}<extra></extra>"))
+            fig_style(fig2,400); fig2.update_layout(legend=dict(orientation="h",y=1.05))
+            st.plotly_chart(fig2,use_container_width=True)
+
+    with tab3:
+        st.markdown("Pearson correlation between FRED series (monthly resampled).")
+        am=q("SELECT date,series_code,value FROM market_data WHERE date BETWEEN %s AND %s ORDER BY date",params=(sd,ed))
+        if not am.empty:
+            am["date"]=pd.to_datetime(am["date"])
+            piv=am.pivot_table(index="date",columns="series_code",values="value").resample("M").last().dropna(thresh=3)
+            corr=piv.corr()
+            fh=px.imshow(corr,color_continuous_scale=["#EF4444","white",BLUE],color_continuous_midpoint=0,text_auto=".2f",aspect="auto")
+            fh.update_layout(margin=dict(l=0,r=0,t=20,b=0),height=400,paper_bgcolor="white",font_family="Inter")
+            st.plotly_chart(fh,use_container_width=True)
+            st.caption("Values near +1 = strong positive correlation, near −1 = strong negative.")
+
+    with tab4:
+        pick=st.selectbox("Company",tickers)
+        ca,cb=st.columns(2)
+        with ca:
+            st.markdown(f'<p class="sec">{pick} — filing history</p>', unsafe_allow_html=True)
+            cf=q("SELECT form_type,filed_at,period,is_material_event,document_url FROM sec_filings WHERE ticker=%s ORDER BY filed_at DESC",params=(pick,))
+            if not cf.empty:
+                st.metric("Total filings",len(cf)); st.metric("8-K events",int(cf["is_material_event"].sum()))
+                cf["filed_at"]=pd.to_datetime(cf["filed_at"]).dt.strftime("%Y-%m-%d")
+                st.dataframe(cf[["form_type","filed_at","period"]],use_container_width=True,hide_index=True)
+        with cb:
+            st.markdown(f'<p class="sec">{pick} — annual filing frequency</p>', unsafe_allow_html=True)
+            if not cf.empty:
+                cf2=cf.copy(); cf2["filed_at"]=pd.to_datetime(cf2["filed_at"]); cf2["year"]=cf2["filed_at"].dt.year
+                yr=cf2.groupby(["year","form_type"]).size().reset_index(name="n")
+                fy=px.bar(yr,x="year",y="n",color="form_type",barmode="group",color_discrete_map={"8-K":"#EF4444","10-K":BLUE})
+                fig_style(fy,260); st.plotly_chart(fy,use_container_width=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ABOUT
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "About":
+    st.markdown('<p class="sec">Group 7 · Columbia University</p>', unsafe_allow_html=True)
+    st.title("About the Platform")
+    st.markdown("A real-time ETL pipeline ingesting financial news, SEC filings, and macroeconomic data from three free APIs — transformed with distributed computing and served via this dashboard.\n\n**Team:** Ce Zhang · Cai Gao · Yuchun Wu · Yanji Li")
     st.markdown("---")
-    st.markdown('<p class="section-label">SEC filings + news co-occurrence</p>', unsafe_allow_html=True)
-    st.markdown("Companies where an SEC filing and a news article appeared on the same calendar date.")
+    c1,c2=st.columns(2)
+    with c1:
+        st.markdown("### Data Sources")
+        st.markdown("""| Source | Type | Volume | Frequency |
+|---|---|---|---|
+| **NewsAPI** | Headlines | ~500/day | Every 15 min |
+| **SEC Edgar** | 8-K & 10-K | ~50–200/day | On filing |
+| **FRED** | 12 macro series | Back to 2010 | Daily/Monthly |""")
+        st.markdown("### Stack")
+        st.markdown("""| Technology | Role |
+|---|---|
+| **Kafka** | Streaming buffer |
+| **PySpark** | Distributed transform + join |
+| **PostgreSQL** | Structured warehouse |
+| **MongoDB** | Document store |
+| **Airflow** | Orchestration |""")
+    with c2:
+        st.markdown("### ETL Process")
+        st.code("""Extract
+├── NewsAPI    → Kafka: news-articles
+├── SEC Edgar  → Kafka: sec-filings
+└── FRED API   → Kafka: market-data
 
-    cross = pg_query("""
-        SELECT
-            f.ticker, f.company_name, f.form_type, f.filed_at,
-            COUNT(n.id) AS news_same_day
-        FROM   sec_filings f
-        LEFT   JOIN news_sentiment n ON n.date_only = f.filed_at
-        GROUP  BY f.ticker, f.company_name, f.form_type, f.filed_at
-        HAVING COUNT(n.id) > 0
-        ORDER  BY f.filed_at DESC
-        LIMIT  30
-    """)
+Transform (PySpark)
+├── Deduplicate by URL / accession number
+├── Standardise dates + parse types
+├── Tag news categories
+├── Flag 8-K material events
+└── Cross-source join on timestamp
 
-    if cross.empty:
-        st.info("No date overlaps found yet. Try running the pipeline with a wider date range in Sections 1 and 2 of the notebook.")
-    else:
-        fig = px.scatter(cross,
-                         x="filed_at", y="ticker",
-                         size="news_same_day", color="form_type",
-                         color_discrete_map={"8-K": "#DC2626", "10-K": "#1E2761"},
-                         hover_data=["company_name", "news_same_day"],
-                         title="Filing dates with concurrent news coverage (bubble = article count)")
-        fig.update_layout(
-            plot_bgcolor="white", paper_bgcolor="white",
-            xaxis=dict(showgrid=False, title="Filing date"),
-            yaxis=dict(showgrid=True, gridcolor="#F0F0F0", title="Ticker"),
-            margin=dict(l=0, r=0, t=40, b=0), height=380,
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(cross.rename(columns={
-            "ticker": "Ticker", "company_name": "Company",
-            "form_type": "Form", "filed_at": "Filed",
-            "news_same_day": "News articles same day"
-        }), use_container_width=True, hide_index=True)
-
-    # ── Market data around filing dates ───────────────────────────────────────
-    st.markdown("---")
-    st.markdown('<p class="section-label">Market context around filing dates</p>', unsafe_allow_html=True)
-    st.markdown("S&P 500 trend with SEC filing dates overlaid as markers.")
-
-    sp500 = pg_query("""
-        SELECT date, value FROM market_data
-        WHERE series_code = 'SP500'
-        ORDER BY date
-    """)
-    filing_dates = pg_query("""
-        SELECT DISTINCT filed_at AS date, ticker, form_type
-        FROM sec_filings
-        ORDER BY filed_at
-    """)
-
-    if not sp500.empty:
-        fig3 = go.Figure()
-        fig3.add_trace(go.Scatter(
-            x=sp500["date"], y=sp500["value"],
-            mode="lines", name="S&P 500",
-            line=dict(color="#1E2761", width=2),
-        ))
-        if not filing_dates.empty:
-            filing_dates["date"] = pd.to_datetime(filing_dates["date"])
-            sp500["date"] = pd.to_datetime(sp500["date"])
-            merged = pd.merge_asof(
-                filing_dates.sort_values("date"),
-                sp500.sort_values("date"),
-                on="date", direction="nearest"
-            )
-            fig3.add_trace(go.Scatter(
-                x=merged["date"], y=merged["value"],
-                mode="markers", name="Filing date",
-                marker=dict(color="#DC2626", size=10, symbol="diamond"),
-                text=merged["ticker"] + " " + merged["form_type"],
-                hovertemplate="%{text}<br>%{x}<extra></extra>",
-            ))
-        fig3.update_layout(
-            plot_bgcolor="white", paper_bgcolor="white",
-            xaxis=dict(showgrid=False, title=""),
-            yaxis=dict(showgrid=True, gridcolor="#F0F0F0", title="S&P 500"),
-            legend=dict(orientation="h", y=1.1),
-            margin=dict(l=0, r=0, t=20, b=0), height=360,
-        )
-        st.plotly_chart(fig3, use_container_width=True)
-
-    # ── News category breakdown over time ─────────────────────────────────────
-    st.markdown("---")
-    st.markdown('<p class="section-label">News category distribution over time</p>', unsafe_allow_html=True)
-
-    cat_time = pg_query("""
-        SELECT date_only, category, COUNT(*) AS n
-        FROM news_sentiment
-        WHERE date_only BETWEEN %s AND %s
-        GROUP BY date_only, category
-        ORDER BY date_only
-    """, params=(start_date, end_date))
-
-    if not cat_time.empty:
-        fig4 = px.bar(cat_time, x="date_only", y="n", color="category",
-                      color_discrete_map={
-                          "earnings": "#059669", "m&a": "#7C3AED",
-                          "macro": "#D97706", "regulatory": "#DC2626", "general": "#6B7280"
-                      }, barmode="stack")
-        fig4.update_layout(
-            plot_bgcolor="white", paper_bgcolor="white",
-            xaxis=dict(showgrid=False, title="Date"),
-            yaxis=dict(title="Articles"), margin=dict(l=0, r=0, t=10, b=0),
-            height=300, legend_title="Category",
-        )
-        st.plotly_chart(fig4, use_container_width=True)
-    else:
-        st.info("No news data in selected date range")
+Load
+├── PostgreSQL ← market_data, sec_filings, news_sentiment
+└── MongoDB    ← news_articles, sec_filing_documents""", language="")
+        st.markdown("### Cost Estimate")
+        st.markdown("""| Component | Demo | Production |
+|---|---|---|
+| Kafka | $0 | $50–150/mo |
+| PySpark | $0 | $200–500/mo |
+| PostgreSQL | $0 | $15–50/mo |
+| MongoDB | $0 | $57–200/mo |
+| Airflow | $0 | $100–200/mo |
+| **Total** | **$0** | **$422–1,100/mo** |""")
