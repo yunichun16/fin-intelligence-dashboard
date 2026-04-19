@@ -183,6 +183,13 @@ with st.sidebar:
     tickers = st.multiselect("Tickers", pool, default=pool)
     if not tickers: tickers = pool
 
+    st.markdown("---")
+    st.markdown('<p style="font-size:9px;color:#475569;letter-spacing:.1em">LIVE MODE</p>', unsafe_allow_html=True)
+    auto_refresh = st.toggle("Auto-refresh (30s)", value=False)
+    if auto_refresh:
+        import time as _time
+        st.markdown('<p style="font-size:10px;color:#3A86FF;margin:0">🔴 Live · refreshing every 30s</p>', unsafe_allow_html=True)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # OVERVIEW
@@ -190,7 +197,18 @@ with st.sidebar:
 if page == "Overview":
     st.markdown('<p class="sec">Financial Intelligence Platform</p>', unsafe_allow_html=True)
     st.title("Market Overview")
-    st.caption(f"Live data · {today.strftime('%B %d, %Y')} · Supabase + MongoDB Atlas")
+
+    # Auto-refresh handler
+    if auto_refresh:
+        import time as _t
+        _placeholder = st.empty()
+        for _i in range(30, 0, -1):
+            _placeholder.caption(f"🔴 Live · {today.strftime('%B %d, %Y')} · Supabase + MongoDB Atlas · refreshing in {_i}s")
+            _t.sleep(1)
+        st.cache_data.clear()
+        st.rerun()
+    else:
+        st.caption(f"Live data · {today.strftime('%B %d, %Y')} · Supabase + MongoDB Atlas")
 
     counts = q("""SELECT
         (SELECT COUNT(*) FROM market_data) market_rows,
@@ -210,6 +228,37 @@ if page == "Overview":
         kpi(c3,"News articles",f"{int(r.news_rows):,}","indexed")
         kpi(c4,"Data sources","3","NewsAPI · Edgar · FRED")
         kpi(c5,"Technologies","5","Kafka·Spark·PG·Mongo·Airflow")
+
+    # Live data volume counter
+    vol = q("""SELECT
+        (SELECT COUNT(*) FROM market_data)    AS m,
+        (SELECT COUNT(*) FROM sec_filings)    AS f,
+        (SELECT COUNT(*) FROM news_sentiment) AS n,
+        (SELECT pg_size_pretty(pg_total_relation_size('market_data') +
+                               pg_total_relation_size('sec_filings') +
+                               pg_total_relation_size('news_sentiment'))) AS db_size
+    """)
+    if not vol.empty:
+        r = vol.iloc[0]
+        total = int(r["m"]) + int(r["f"]) + int(r["n"])
+        st.markdown(f"""
+        <div style="background:linear-gradient(90deg,#080E1D,#162040);border-radius:12px;
+                    padding:14px 24px;margin:12px 0;display:flex;align-items:center;gap:32px;
+                    border:1px solid #1E3A5F;color:white;">
+          <div>
+            <p style="font-size:9px;letter-spacing:.12em;opacity:.5;margin:0">TOTAL RECORDS IN DATABASE</p>
+            <p style="font-family:Syne,sans-serif;font-size:28px;font-weight:700;margin:2px 0;letter-spacing:-.02em">
+              {total:,} <span style="font-size:14px;opacity:.5;font-weight:400">records</span>
+            </p>
+          </div>
+          <div style="width:1px;height:40px;background:rgba(255,255,255,.1)"></div>
+          <div><p style="font-size:9px;opacity:.5;margin:0">MARKET DATA</p><p style="font-size:18px;font-weight:600;margin:0">{int(r["m"]):,}</p></div>
+          <div><p style="font-size:9px;opacity:.5;margin:0">SEC FILINGS</p><p style="font-size:18px;font-weight:600;margin:0">{int(r["f"]):,}</p></div>
+          <div><p style="font-size:9px;opacity:.5;margin:0">NEWS ARTICLES</p><p style="font-size:18px;font-weight:600;margin:0">{int(r["n"]):,}</p></div>
+          <div style="width:1px;height:40px;background:rgba(255,255,255,.1)"></div>
+          <div><p style="font-size:9px;opacity:.5;margin:0">DB SIZE</p><p style="font-size:18px;font-weight:600;margin:0">{r["db_size"]}</p></div>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.markdown("---")
     col1,col2 = st.columns([3,2])
@@ -255,8 +304,27 @@ if page == "Overview":
         st.markdown('<p class="sec">Most recent filings</p>', unsafe_allow_html=True)
         rf=q("SELECT ticker,company_name,form_type,filed_at FROM sec_filings ORDER BY filed_at DESC LIMIT 12")
         if not rf.empty:
-            rf["filed_at"]=pd.to_datetime(rf["filed_at"]).dt.strftime("%Y-%m-%d")
+            rf["filed_at"]=pd.to_datetime(rf["filed_at"].astype(str)).dt.strftime("%Y-%m-%d")
             st.dataframe(rf.rename(columns={"ticker":"Ticker","company_name":"Company","form_type":"Form","filed_at":"Filed"}),use_container_width=True,hide_index=True)
+
+    # Pipeline health strip
+    st.markdown("---")
+    st.markdown('<p class="sec">Pipeline health</p>', unsafe_allow_html=True)
+    h1,h2,h3,h4 = st.columns(4)
+    last_market = q("SELECT MAX(fetched_at) AS t FROM market_data")
+    last_filing = q("SELECT MAX(fetched_at) AS t FROM sec_filings")
+    last_news   = q("SELECT MAX(fetched_at) AS t FROM news_sentiment")
+    newest_filing = q("SELECT MAX(filed_at) AS t FROM sec_filings")
+
+    def fmt_time(df):
+        if df.empty or df.iloc[0]["t"] is None: return "No data"
+        try: return pd.to_datetime(str(df.iloc[0]["t"])).strftime("%b %d %H:%M UTC")
+        except: return "Unknown"
+
+    h1.metric("Last market ingest",  fmt_time(last_market))
+    h2.metric("Last filing ingest",  fmt_time(last_filing))
+    h3.metric("Last news ingest",    fmt_time(last_news))
+    h4.metric("Newest filing date",  fmt_time(newest_filing))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -436,6 +504,34 @@ elif page == "News Feed":
         t=srch.lower()
         arts=[a for a in arts if t in str(a.get("title","")).lower() or t in str(a.get("source_name","")).lower()]
 
+    # Simple keyword-based sentiment scoring (no ML needed)
+    POS_WORDS = {"surge","soar","beat","record","growth","profit","strong","gain","rise","rally","upgrade","buy","bullish","exceed","outperform","boost","innovation","breakthrough","expand","hire"}
+    NEG_WORDS = {"fall","drop","crash","miss","loss","weak","cut","layoff","decline","warn","downgrade","sell","bearish","below","underperform","risk","debt","default","bankrupt","investigation","fine","lawsuit","fraud","recall"}
+
+    def sentiment_score(title, desc=""):
+        text = (str(title) + " " + str(desc)).lower()
+        words = set(text.split())
+        pos = len(words & POS_WORDS)
+        neg = len(words & NEG_WORDS)
+        if pos > neg: return "🟢 Positive", "#D1FAE5", "#065F46"
+        elif neg > pos: return "🔴 Negative", "#FEE2E2", "#991B1B"
+        else: return "⚪ Neutral", "#F1F5F9", "#475569"
+
+    for a in arts:
+        a["_sentiment"], a["_sent_bg"], a["_sent_color"] = sentiment_score(
+            a.get("title",""), a.get("description","")
+        )
+
+    # Sentiment summary bar
+    sentiments = [a["_sentiment"] for a in arts]
+    sent_counts = {"🟢 Positive": sentiments.count("🟢 Positive"),
+                   "⚪ Neutral":  sentiments.count("⚪ Neutral"),
+                   "🔴 Negative": sentiments.count("🔴 Negative")}
+    s1,s2,s3 = st.columns(3)
+    s1.metric("🟢 Positive", sent_counts["🟢 Positive"])
+    s2.metric("⚪ Neutral",  sent_counts["⚪ Neutral"])
+    s3.metric("🔴 Negative", sent_counts["🔴 Negative"])
+
     st.markdown(f"**{len(arts)} articles** · most recent first")
     st.markdown("---")
 
@@ -447,12 +543,23 @@ elif page == "News Feed":
             cat=a.get("category","general"); css,lbl=bmap.get(cat,("bg","GENERAL"))
             title=a.get("title","")[:100]; src=a.get("source_name","?")
             desc=(a.get("description","") or "")[:130]; pub=str(a.get("published_at",""))[:10]; url=a.get("url","#")
-            html=f'<div class="news-card"><span class="badge {css}">{lbl}</span><p class="news-title" style="margin-top:7px"><a href="{url}" target="_blank" style="color:#080E1D;text-decoration:none">{title}</a></p><p class="news-meta">{src} · {pub}</p><p style="font-size:12px;color:#64748B;margin:5px 0 0;line-height:1.5">{desc}{"..." if len(desc)==130 else ""}</p></div>'
+            sent=a.get("_sentiment","⚪ Neutral"); sent_bg=a.get("_sent_bg","#F1F5F9"); sent_col=a.get("_sent_color","#475569")
+            border_color = "#10B981" if "Positive" in sent else "#EF4444" if "Negative" in sent else "#94A3B8"
+            html=f'''<div class="news-card" style="border-left-color:{border_color}">
+              <div style="display:flex;gap:6px;align-items:center">
+                <span class="badge {css}">{lbl}</span>
+                <span style="font-size:10px;background:{sent_bg};color:{sent_col};padding:1px 8px;border-radius:20px;font-weight:600">{sent}</span>
+              </div>
+              <p class="news-title" style="margin-top:7px"><a href="{url}" target="_blank" style="color:#080E1D;text-decoration:none">{title}</a></p>
+              <p class="news-meta">{src} · {pub}</p>
+              <p style="font-size:12px;color:#64748B;margin:5px 0 0;line-height:1.5">{desc}{"..." if len(desc)==130 else ""}</p>
+            </div>'''
             (l if i%2==0 else r).markdown(html,unsafe_allow_html=True)
     else:
         for a in arts:
             cat=a.get("category","general"); css,lbl=bmap.get(cat,("bg","GENERAL"))
-            st.markdown(f'<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #F1F5F9"><span class="badge {css}" style="min-width:72px;text-align:center">{lbl}</span><a href="{a.get("url","#")}" target="_blank" style="font-size:13px;color:#080E1D;text-decoration:none;flex:1">{a.get("title","")}</a><span style="font-size:10px;color:#94A3B8;white-space:nowrap">{a.get("source_name","?")} · {str(a.get("published_at",""))[:10]}</span></div>',unsafe_allow_html=True)
+            sent=a.get("_sentiment","⚪ Neutral")
+            st.markdown(f'<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #F1F5F9"><span class="badge {css}" style="min-width:72px;text-align:center">{lbl}</span><span style="font-size:11px;white-space:nowrap">{sent}</span><a href="{a.get("url","#")}" target="_blank" style="font-size:13px;color:#080E1D;text-decoration:none;flex:1">{a.get("title","")}</a><span style="font-size:10px;color:#94A3B8;white-space:nowrap">{a.get("source_name","?")} · {str(a.get("published_at",""))[:10]}</span></div>',unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -463,23 +570,40 @@ elif page == "Cross-Source":
     st.title("Cross-Source Analysis")
     st.caption("Joining SEC filings, news headlines, and FRED macro data on a unified timeline.")
 
-    tab1,tab2,tab3,tab4=st.tabs(["📌 Filing + News","📈 Market context","🔥 Correlations","🏢 Company drill-down"])
+    tab1,tab2,tab3,tab4,tab5=st.tabs(["📌 Filing + News","📈 Market context","🔥 Correlations","🏢 Company drill-down","🚨 Alert Simulation"])
 
     with tab1:
-        cross=q("""SELECT f.ticker,f.company_name,f.form_type,f.filed_at,COUNT(n.id) news_same_day
-                   FROM sec_filings f LEFT JOIN news_sentiment n ON n.date_only=f.filed_at
+        cross=q("""SELECT f.ticker,f.company_name,f.form_type,f.filed_at,
+                          COUNT(n.id) AS news_same_day,
+                          MIN(ABS(f.filed_at - n.date_only)) AS min_days_apart
+                   FROM sec_filings f
+                   LEFT JOIN news_sentiment n
+                     ON n.date_only BETWEEN f.filed_at - INTERVAL '7 days'
+                                        AND f.filed_at + INTERVAL '7 days'
                    GROUP BY f.ticker,f.company_name,f.form_type,f.filed_at
                    ORDER BY news_same_day DESC,f.filed_at DESC LIMIT 50""")
+        window = st.slider("Date window (days either side of filing)", 1, 14, 7)
+        if window != 7:
+            cross=q(f"""SELECT f.ticker,f.company_name,f.form_type,f.filed_at,
+                              COUNT(n.id) AS news_same_day
+                       FROM sec_filings f
+                       LEFT JOIN news_sentiment n
+                         ON n.date_only BETWEEN f.filed_at - INTERVAL '{window} days'
+                                            AND f.filed_at + INTERVAL '{window} days'
+                       GROUP BY f.ticker,f.company_name,f.form_type,f.filed_at
+                       ORDER BY news_same_day DESC,f.filed_at DESC LIMIT 50""")
+
         if not cross.empty and cross["news_same_day"].max()>0:
             cd=cross[cross["news_same_day"]>0]
             fig=px.scatter(cd,x="filed_at",y="ticker",size="news_same_day",color="form_type",
                            color_discrete_map={"8-K":"#EF4444","10-K":BLUE},
                            hover_data={"company_name":True,"news_same_day":True},size_max=35)
-            fig_style(fig,350); fig.update_layout(title="Filing events with concurrent news coverage")
+            fig_style(fig,350); fig.update_layout(title=f"Filing events with news coverage within ±{window} days (bubble = article count)")
             st.plotly_chart(fig,use_container_width=True)
+            st.success(f"✓ Found {len(cd)} filings with nearby news coverage using a ±{window}-day window")
         else:
-            st.markdown('<div class="insight">📌 No date overlaps yet — re-run the pipeline with a wider date range and more keywords in Section 1 (NewsAPI) to increase overlap probability.</div>',unsafe_allow_html=True)
-        st.dataframe(cross.rename(columns={"ticker":"Ticker","company_name":"Company","form_type":"Form","filed_at":"Filed","news_same_day":"News same day"}),use_container_width=True,hide_index=True)
+            st.info(f"No overlaps found with ±{window}-day window — try increasing the window above or re-running the pipeline with more keywords")
+        st.dataframe(cross.rename(columns={"ticker":"Ticker","company_name":"Company","form_type":"Form","filed_at":"Filed","news_same_day":f"News within ±{window}d"}),use_container_width=True,hide_index=True)
 
     with tab2:
         ind=st.selectbox("Indicator to plot",["SP500","DFF","GS10","VIXCLS","CPIAUCSL","UNRATE"])
@@ -530,6 +654,69 @@ elif page == "Cross-Source":
                 yr=cf2.groupby(["year","form_type"]).size().reset_index(name="n")
                 fy=px.bar(yr,x="year",y="n",color="form_type",barmode="group",color_discrete_map={"8-K":"#EF4444","10-K":BLUE})
                 fig_style(fy,260); st.plotly_chart(fy,use_container_width=True)
+
+    with tab5:
+        st.markdown("### 🚨 8-K Material Event Alert Simulation")
+        st.markdown("*Simulates what a real-time alert system would have triggered based on the 8-K filings in your database.*")
+
+        # Alert settings
+        a1,a2,a3 = st.columns(3)
+        with a1:
+            alert_tickers = st.multiselect("Watch these tickers", tickers, default=tickers[:5])
+        with a2:
+            alert_lookback = st.slider("Look back (days)", 7, 90, 30)
+        with a3:
+            alert_form = st.selectbox("Alert on", ["8-K only (material events)", "All filings"])
+
+        form_cond = "AND form_type='8-K'" if "8-K only" in alert_form else ""
+        if alert_tickers:
+            aph = ",".join(["%s"]*len(alert_tickers))
+            alerts = q(f"""
+                SELECT ticker, company_name, form_type, filed_at, document_url
+                FROM sec_filings
+                WHERE ticker IN ({aph})
+                  AND filed_at >= CURRENT_DATE - INTERVAL '{alert_lookback} days'
+                  {form_cond}
+                ORDER BY filed_at DESC
+            """, params=tuple(alert_tickers))
+
+            if not alerts.empty:
+                st.success(f"✓ {len(alerts)} alert(s) would have fired in the last {alert_lookback} days")
+                for _,row in alerts.iterrows():
+                    col_ico = "🔴" if row["form_type"]=="8-K" else "🔵"
+                    filed = str(row["filed_at"])[:10]
+                    url = row.get("document_url") or "#"
+                    st.markdown(f"""
+                    <div style="background:white;border:1px solid #FCA5A5;border-left:4px solid #EF4444;
+                                border-radius:10px;padding:12px 16px;margin-bottom:8px;
+                                box-shadow:0 1px 3px rgba(239,68,68,.1)">
+                      <div style="display:flex;align-items:center;justify-content:space-between">
+                        <div>
+                          <span style="font-family:JetBrains Mono,monospace;font-size:12px;background:#EFF6FF;
+                                       color:#1D4ED8;padding:2px 8px;border-radius:5px;font-weight:600">{row["ticker"]}</span>
+                          <span style="font-size:13px;font-weight:500;color:#080E1D;margin-left:10px">{row["company_name"]}</span>
+                        </div>
+                        <div style="text-align:right">
+                          <span style="font-size:11px;color:#EF4444;font-weight:600">{col_ico} {row["form_type"]} FILED</span><br>
+                          <span style="font-size:11px;color:#94A3B8">{filed}</span>
+                        </div>
+                      </div>
+                      {"<a href='"+url+"' target='_blank' style='font-size:11px;color:#3A86FF;text-decoration:none;margin-top:4px;display:block'>View filing document →</a>" if url != "#" else ""}
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                # Alert frequency chart
+                st.markdown("---")
+                st.markdown('<p class="sec">Alert frequency over period</p>', unsafe_allow_html=True)
+                alerts["filed_at"] = pd.to_datetime(alerts["filed_at"].astype(str))
+                alerts["week"] = alerts["filed_at"].dt.strftime("%Y-W%V")
+                weekly = alerts.groupby(["week","ticker"]).size().reset_index(name="alerts")
+                fig_a = px.bar(weekly, x="week", y="alerts", color="ticker",
+                               color_discrete_sequence=COLORS, title="Alerts by week")
+                fig_style(fig_a, 240)
+                st.plotly_chart(fig_a, use_container_width=True)
+            else:
+                st.info(f"No {alert_form.split()[0]} filings found for selected tickers in the last {alert_lookback} days")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
