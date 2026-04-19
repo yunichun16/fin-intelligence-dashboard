@@ -84,32 +84,51 @@ def pg():
     except Exception as e:
         st.error(f"PostgreSQL failed: {e}"); return None
 
-@st.cache_resource(show_spinner=False)
 def mongo():
+    """Connect to MongoDB — no caching so secrets are always read fresh."""
     from pymongo import MongoClient
+
+    # Build URI — try every possible way Streamlit might expose it
+    uri = ""
     try:
-        uri = ""
-        if hasattr(st, "secrets"):
-            # Try multiple access patterns — Streamlit TOML can be tricky
-            try:
-                uri = str(st.secrets["MONGO_URI"]).strip()
-            except (KeyError, Exception):
-                pass
-            if not uri:
-                try:
-                    uri = str(st.secrets.get("MONGO_URI", "")).strip()
-                except Exception:
-                    pass
-        if not uri:
+        # Method 1: top-level key
+        uri = str(st.secrets["MONGO_URI"]).strip()
+    except Exception:
+        pass
+
+    if not uri:
+        try:
+            # Method 2: nested inside [postgres] block (common Streamlit TOML issue)
+            uri = str(st.secrets["postgres"]["MONGO_URI"]).strip()
+        except Exception:
+            pass
+
+    if not uri:
+        try:
+            # Method 3: via .get()
+            uri = str(st.secrets.get("MONGO_URI", "")).strip()
+        except Exception:
+            pass
+
+    if not uri:
+        # Method 4: env var fallback for local dev
+        try:
             from dotenv import load_dotenv; load_dotenv()
-            uri = os.getenv("MONGO_URI", "").strip()
-        if not uri:
-            st.error("MONGO_URI not found — make sure it is on its own line outside [postgres] in Streamlit Secrets")
-            return None
-        c = MongoClient(uri, serverSelectionTimeoutMS=5000)
-        c.admin.command("ping"); return c
+        except Exception:
+            pass
+        uri = os.getenv("MONGO_URI", "").strip()
+
+    if not uri:
+        st.error("MONGO_URI not found in any location")
+        return None
+
+    try:
+        c = MongoClient(uri, serverSelectionTimeoutMS=8000)
+        c.admin.command("ping")
+        return c
     except Exception as e:
-        st.error(f"MongoDB failed: {e}"); return None
+        st.error(f"MongoDB connection failed: {e}")
+        return None
 
 @st.cache_data(ttl=300, show_spinner=False)
 def q(sql, params=None):
@@ -406,18 +425,6 @@ elif page == "News Feed":
                   color_discrete_map={"earnings":"#10B981","m&a":"#8B5CF6","macro":"#F59E0B","regulatory":"#EF4444","general":"#94A3B8"})
         fig_style(fc,140); fc.update_layout(showlegend=False,margin=dict(l=0,r=0,t=0,b=0))
         st.plotly_chart(fc,use_container_width=True)
-
-    # Debug — remove after confirming MongoDB works
-    with st.expander("🔧 Debug: Secrets check"):
-        if hasattr(st, "secrets"):
-            keys = list(st.secrets.keys())
-            st.write("Top-level secret keys:", keys)
-            if "MONGO_URI" in st.secrets:
-                uri_preview = str(st.secrets["MONGO_URI"])[:40] + "..."
-                st.success(f"MONGO_URI found: {uri_preview}")
-            else:
-                st.error("MONGO_URI NOT found at top level")
-                st.write("All keys:", dict(st.secrets))
 
     mc=mongo()
     if mc is None: st.stop()
