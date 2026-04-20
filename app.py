@@ -1121,64 +1121,128 @@ elif page == "About":
 
     # ── Architecture diagram ─────────────────────────────────────────────────
     st.markdown("### System Architecture")
-    st.markdown("""
-<div style="font-family:JetBrains Mono,monospace;font-size:12px;line-height:1.9;
-            background:#0D1117;color:#E2E8F0;border-radius:14px;padding:24px 28px;
-            border:1px solid #1E3A5F;overflow-x:auto;">
 
-<span style="color:#64748B">┌─────────────────────────── DATA SOURCES ────────────────────────────┐</span>
-<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>  <span style="color:#3BFFA0">NewsAPI</span>          <span style="color:#5BA4FF">SEC Edgar</span>        <span style="color:#FFD166">FRED API</span>         <span style="color:#FF6B6B">Alpaca Markets</span>  <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>  <span style="color:#475569">Headlines·JSON</span>   <span style="color:#475569">8-K·10-K·REST</span>   <span style="color:#475569">12 macro series</span>  <span style="color:#475569">OHLCV·IEX feed</span>  <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>  <span style="color:#475569">Near real-time</span>   <span style="color:#475569">On filing</span>       <span style="color:#475569">Daily/Monthly</span>    <span style="color:#475569">Daily bars</span>      <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
-<span style="color:#64748B">└──────────────────┬──────────────┬──────────────┬───────────────────┘</span>
-                   <span style="color:#64748B">│</span>              <span style="color:#64748B">│</span>              <span style="color:#64748B">│</span>
-                   <span style="color:#64748B">▼</span>              <span style="color:#64748B">▼</span>              <span style="color:#64748B">▼</span>
+    arch_svg = """
+    <div style="width:100%;overflow-x:auto;margin:8px 0 24px">
+    <svg viewBox="0 0 900 560" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:900px;display:block;margin:auto">
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#475569"/>
+        </marker>
+        <marker id="arr-blue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#3A86FF"/>
+        </marker>
+      </defs>
 
-<span style="color:#64748B">┌─────────────────────── STREAMING LAYER ─────────────────────────────┐</span>
-<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>               <span style="color:#FF6B6B">Apache Kafka</span>  (3 topics)                            <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>         <span style="color:#475569">news-articles · sec-filings · market-data</span>                 <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>   Decouples producers from consumers · durable log · no data loss   <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
-<span style="color:#64748B">└──────────────────────────────┬──────────────────────────────────────┘</span>
-                               <span style="color:#64748B">│</span>
-                               <span style="color:#64748B">▼</span>
+      <!-- Background -->
+      <rect width="900" height="560" fill="#0D1117" rx="14"/>
 
-<span style="color:#64748B">┌─────────────────── PROCESSING LAYER ────────────────────────────────┐</span>
-<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>               <span style="color:#5BA4FF">Apache PySpark</span>  (distributed)                        <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>         <span style="color:#475569">Deduplicate → Standardise → Categorise → Join</span>             <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>         <span style="color:#475569">Cross-source join on timestamp across all 4 sources</span>        <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>                     <span style="color:#475569">orchestrated by Airflow DAGs</span>                    <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
-<span style="color:#64748B">└────────────────┬─────────────────────────────┬───────────────────────┘</span>
-                 <span style="color:#64748B">│</span>                             <span style="color:#64748B">│</span>
-        <span style="color:#475569">structured data</span>             <span style="color:#475569">unstructured docs</span>
-                 <span style="color:#64748B">▼</span>                             <span style="color:#64748B">▼</span>
+      <!-- ── ROW 1: Data Sources ───────────────────────────── -->
+      <rect x="16" y="16" width="868" height="100" rx="8" fill="#0F1729" stroke="#1E3A5F" stroke-width="1"/>
+      <text x="450" y="36" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#475569" letter-spacing="2" font-weight="600">DATA SOURCES</text>
 
-<span style="color:#64748B">┌──────────────────┐</span>        <span style="color:#64748B">┌───────────────────────────────────────┐</span>
-<span style="color:#64748B">│</span> <span style="color:#3BFFA0">PostgreSQL</span>        <span style="color:#64748B">│</span>        <span style="color:#64748B">│</span> <span style="color:#FF6B6B">MongoDB Atlas</span>                          <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span> <span style="color:#475569">Supabase hosted</span>  <span style="color:#64748B">│</span>        <span style="color:#64748B">│</span> <span style="color:#475569">news_articles</span>                          <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>                  <span style="color:#64748B">│</span>        <span style="color:#64748B">│</span> <span style="color:#475569">sec_filing_documents</span>                   <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span> <span style="color:#475569">market_data</span>      <span style="color:#64748B">│</span>        <span style="color:#64748B">└───────────────────────────────────────┘</span>
-<span style="color:#64748B">│</span> <span style="color:#475569">sec_filings</span>      <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span> <span style="color:#475569">news_sentiment</span>   <span style="color:#64748B">│</span>        <span style="color:#64748B">┌───────────────────────────────────────┐</span>
-<span style="color:#64748B">│</span> <span style="color:#475569">stock_prices</span>     <span style="color:#64748B">│</span>        <span style="color:#64748B">│</span> <span style="color:#FFD166">Automation</span>                             <span style="color:#64748B">│</span>
-<span style="color:#64748B">└──────────┬───────┘</span>        <span style="color:#64748B">│</span> <span style="color:#475569">GitHub Actions · runs daily @ 06:00 UTC</span> <span style="color:#64748B">│</span>
-           <span style="color:#64748B">│</span>               <span style="color:#64748B">│</span> <span style="color:#475569">pipeline.py replaces manual Colab runs</span> <span style="color:#64748B">│</span>
-           <span style="color:#64748B">▼</span>               <span style="color:#64748B">└───────────────────────────────────────┘</span>
+      <!-- NewsAPI -->
+      <rect x="32" y="44" width="190" height="60" rx="6" fill="#0D2818" stroke="#3BFFA0" stroke-width="1"/>
+      <text x="127" y="65" text-anchor="middle" font-family="Inter,sans-serif" font-size="12" fill="#3BFFA0" font-weight="600">NewsAPI</text>
+      <text x="127" y="81" text-anchor="middle" font-family="Inter,sans-serif" font-size="10" fill="#475569">Headlines · JSON</text>
+      <text x="127" y="96" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#374151">~2,000 articles/run</text>
 
-<span style="color:#64748B">┌─────────────────────── SERVE LAYER ─────────────────────────────────┐</span>
-<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>           <span style="color:#5BA4FF">Streamlit Dashboard</span>  (fin-intelligence-dashboard.streamlit.app)  <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>   Overview · Market Data · Stock Prices · SEC Filings · News Feed   <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>               Cross-Source Analysis · Alert Simulation               <span style="color:#64748B">│</span>
-<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
-<span style="color:#64748B">└──────────────────────────────────────────────────────────────────────┘</span>
-</div>
-    """, unsafe_allow_html=True)
+      <!-- SEC Edgar -->
+      <rect x="240" y="44" width="190" height="60" rx="6" fill="#0D1829" stroke="#5BA4FF" stroke-width="1"/>
+      <text x="335" y="65" text-anchor="middle" font-family="Inter,sans-serif" font-size="12" fill="#5BA4FF" font-weight="600">SEC Edgar</text>
+      <text x="335" y="81" text-anchor="middle" font-family="Inter,sans-serif" font-size="10" fill="#475569">8-K · 10-K · REST</text>
+      <text x="335" y="96" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#374151">38 companies · on filing</text>
+
+      <!-- FRED -->
+      <rect x="448" y="44" width="190" height="60" rx="6" fill="#1A1500" stroke="#FFD166" stroke-width="1"/>
+      <text x="543" y="65" text-anchor="middle" font-family="Inter,sans-serif" font-size="12" fill="#FFD166" font-weight="600">FRED API</text>
+      <text x="543" y="81" text-anchor="middle" font-family="Inter,sans-serif" font-size="10" fill="#475569">12 macro series</text>
+      <text x="543" y="96" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#374151">Back to 2010 · daily</text>
+
+      <!-- Alpaca -->
+      <rect x="656" y="44" width="212" height="60" rx="6" fill="#1A0A0A" stroke="#FF6B6B" stroke-width="1"/>
+      <text x="762" y="65" text-anchor="middle" font-family="Inter,sans-serif" font-size="12" fill="#FF6B6B" font-weight="600">Alpaca Markets</text>
+      <text x="762" y="81" text-anchor="middle" font-family="Inter,sans-serif" font-size="10" fill="#475569">OHLCV · IEX feed</text>
+      <text x="762" y="96" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#374151">38 tickers · daily bars</text>
+
+      <!-- Arrows down to Kafka -->
+      <line x1="127" y1="116" x2="400" y2="154" stroke="#475569" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#arr)"/>
+      <line x1="335" y1="116" x2="420" y2="154" stroke="#475569" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#arr)"/>
+      <line x1="543" y1="116" x2="460" y2="154" stroke="#475569" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#arr)"/>
+      <line x1="762" y1="116" x2="500" y2="154" stroke="#475569" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#arr)"/>
+
+      <!-- ── ROW 2: Kafka ─────────────────────────────────── -->
+      <rect x="16" y="156" width="868" height="72" rx="8" fill="#0F1729" stroke="#FF6B6B" stroke-width="1"/>
+      <text x="450" y="175" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#475569" letter-spacing="2" font-weight="600">STREAMING LAYER</text>
+      <text x="450" y="197" text-anchor="middle" font-family="Inter,sans-serif" font-size="14" fill="#FF6B6B" font-weight="700">Apache Kafka</text>
+      <text x="450" y="213" text-anchor="middle" font-family="Inter,sans-serif" font-size="10" fill="#475569">3 topics: news-articles · sec-filings · market-data · Decouples producers from consumers · durable log</text>
+
+      <!-- Airflow badge -->
+      <rect x="730" y="162" width="140" height="56" rx="6" fill="#140D26" stroke="#8338EC" stroke-width="1"/>
+      <text x="800" y="183" text-anchor="middle" font-family="Inter,sans-serif" font-size="10" fill="#8338EC" font-weight="600">Apache Airflow</text>
+      <text x="800" y="199" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#475569">Orchestration · DAGs</text>
+      <text x="800" y="212" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#374151">schedules all tasks</text>
+
+      <!-- Arrow down to Spark -->
+      <line x1="450" y1="228" x2="450" y2="248" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- ── ROW 3: PySpark ───────────────────────────────── -->
+      <rect x="16" y="250" width="700" height="72" rx="8" fill="#0F1729" stroke="#5BA4FF" stroke-width="1"/>
+      <text x="350" y="269" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#475569" letter-spacing="2" font-weight="600">PROCESSING LAYER</text>
+      <text x="350" y="291" text-anchor="middle" font-family="Inter,sans-serif" font-size="14" fill="#5BA4FF" font-weight="700">Apache PySpark</text>
+      <text x="350" y="307" text-anchor="middle" font-family="Inter,sans-serif" font-size="10" fill="#475569">Deduplicate → Standardise → Tag categories → Flag 8-K events → Cross-source join on date</text>
+
+      <!-- GitHub Actions badge -->
+      <rect x="730" y="250" width="140" height="72" rx="6" fill="#0A1F0A" stroke="#3BFFA0" stroke-width="1"/>
+      <text x="800" y="272" text-anchor="middle" font-family="Inter,sans-serif" font-size="10" fill="#3BFFA0" font-weight="600">GitHub Actions</text>
+      <text x="800" y="288" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#475569">pipeline.py daily</text>
+      <text x="800" y="302" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#374151">06:00 UTC · automated</text>
+      <text x="800" y="316" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#374151">replaces Colab runs</text>
+
+      <!-- Arrows down to storage -->
+      <line x1="240" y1="322" x2="180" y2="370" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+      <text x="170" y="352" font-family="Inter,sans-serif" font-size="8" fill="#475569">structured</text>
+      <line x1="460" y1="322" x2="560" y2="370" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)"/>
+      <text x="510" y="352" font-family="Inter,sans-serif" font-size="8" fill="#475569">unstructured</text>
+
+      <!-- ── ROW 4: Storage ───────────────────────────────── -->
+      <!-- PostgreSQL -->
+      <rect x="16" y="372" width="420" height="120" rx="8" fill="#0F1729" stroke="#3BFFA0" stroke-width="1"/>
+      <text x="226" y="393" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" fill="#3BFFA0" font-weight="700">PostgreSQL  ·  Supabase</text>
+      <rect x="32" y="400" width="88" height="24" rx="4" fill="#0D2818" stroke="#3BFFA0" stroke-width="0.5"/>
+      <text x="76" y="416" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#3BFFA0">market_data</text>
+      <rect x="130" y="400" width="88" height="24" rx="4" fill="#0D2818" stroke="#3BFFA0" stroke-width="0.5"/>
+      <text x="174" y="416" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#3BFFA0">sec_filings</text>
+      <rect x="228" y="400" width="100" height="24" rx="4" fill="#0D2818" stroke="#3BFFA0" stroke-width="0.5"/>
+      <text x="278" y="416" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#3BFFA0">news_sentiment</text>
+      <rect x="338" y="400" width="84" height="24" rx="4" fill="#0D2818" stroke="#3BFFA0" stroke-width="0.5"/>
+      <text x="380" y="416" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#3BFFA0">stock_prices</text>
+      <text x="226" y="450" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#475569">SQL queries · time-series · aggregations · indexed by date + ticker</text>
+      <text x="226" y="465" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#374151">4 tables · ~30,000+ rows and growing</text>
+      <text x="226" y="480" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#374151">Free tier: 500 MB · Session Pooler for IPv4</text>
+
+      <!-- MongoDB -->
+      <rect x="450" y="372" width="420" height="120" rx="8" fill="#0F1729" stroke="#FF6B6B" stroke-width="1"/>
+      <text x="660" y="393" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" fill="#FF6B6B" font-weight="700">MongoDB Atlas  ·  M0 free cluster</text>
+      <rect x="466" y="400" width="168" height="24" rx="4" fill="#1A0A0A" stroke="#FF6B6B" stroke-width="0.5"/>
+      <text x="550" y="416" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#FF6B6B">news_articles</text>
+      <rect x="648" y="400" width="204" height="24" rx="4" fill="#1A0A0A" stroke="#FF6B6B" stroke-width="0.5"/>
+      <text x="750" y="416" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#FF6B6B">sec_filing_documents</text>
+      <text x="660" y="450" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#475569">Flexible schema · full article text · JSON documents</text>
+      <text x="660" y="465" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#374151">No fixed columns · ideal for variable-length content</text>
+      <text x="660" y="480" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#374151">Free tier: 512 MB · 0.0.0.0/0 Network Access</text>
+
+      <!-- Arrows down to Streamlit -->
+      <line x1="226" y1="492" x2="380" y2="530" stroke="#3A86FF" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+      <line x1="660" y1="492" x2="520" y2="530" stroke="#3A86FF" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+
+      <!-- ── ROW 5: Streamlit ─────────────────────────────── -->
+      <rect x="16" y="530" width="868" height="18" rx="6" fill="#0D1829" stroke="#3A86FF" stroke-width="1"/>
+      <text x="450" y="543" text-anchor="middle" font-family="Inter,sans-serif" font-size="10" fill="#5BA4FF" font-weight="600">Streamlit Dashboard  ·  fin-intelligence-dashboard.streamlit.app  ·  7 pages  ·  dark/light mode</text>
+    </svg>
+    </div>
+    """
+    st.markdown(arch_svg, unsafe_allow_html=True)
 
     st.markdown("---")
     c1, c2 = st.columns(2)
