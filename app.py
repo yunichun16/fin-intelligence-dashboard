@@ -1108,47 +1108,131 @@ elif page == "Cross-Source":
 elif page == "About":
     st.markdown('<p class="sec">Group 7 · Columbia University</p>', unsafe_allow_html=True)
     st.title("About the Platform")
-    st.markdown("A real-time ETL pipeline ingesting financial news, SEC filings, and macroeconomic data from three free APIs — transformed with distributed computing and served via this dashboard.\n\n**Team:** Ce Zhang · Cai Gao · Yuchun Wu · Yanji Li")
+    st.markdown("""
+    A real-time ETL pipeline ingesting financial news, SEC filings, macroeconomic indicators,
+    and live stock prices from **four free APIs** — transformed with distributed computing
+    and served via this dashboard. Daily automation via GitHub Actions means data updates
+    without any manual intervention.
+
+    **Team:** Ce Zhang · Cai Gao · Yuchun Wu · Yanji Li
+    """)
+
     st.markdown("---")
-    c1,c2=st.columns(2)
+
+    # ── Architecture diagram ─────────────────────────────────────────────────
+    st.markdown("### System Architecture")
+    st.markdown("""
+<div style="font-family:JetBrains Mono,monospace;font-size:12px;line-height:1.9;
+            background:#0D1117;color:#E2E8F0;border-radius:14px;padding:24px 28px;
+            border:1px solid #1E3A5F;overflow-x:auto;">
+
+<span style="color:#64748B">┌─────────────────────────── DATA SOURCES ────────────────────────────┐</span>
+<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>  <span style="color:#3BFFA0">NewsAPI</span>          <span style="color:#5BA4FF">SEC Edgar</span>        <span style="color:#FFD166">FRED API</span>         <span style="color:#FF6B6B">Alpaca Markets</span>  <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>  <span style="color:#475569">Headlines·JSON</span>   <span style="color:#475569">8-K·10-K·REST</span>   <span style="color:#475569">12 macro series</span>  <span style="color:#475569">OHLCV·IEX feed</span>  <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>  <span style="color:#475569">Near real-time</span>   <span style="color:#475569">On filing</span>       <span style="color:#475569">Daily/Monthly</span>    <span style="color:#475569">Daily bars</span>      <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
+<span style="color:#64748B">└──────────────────┬──────────────┬──────────────┬───────────────────┘</span>
+                   <span style="color:#64748B">│</span>              <span style="color:#64748B">│</span>              <span style="color:#64748B">│</span>
+                   <span style="color:#64748B">▼</span>              <span style="color:#64748B">▼</span>              <span style="color:#64748B">▼</span>
+
+<span style="color:#64748B">┌─────────────────────── STREAMING LAYER ─────────────────────────────┐</span>
+<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>               <span style="color:#FF6B6B">Apache Kafka</span>  (3 topics)                            <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>         <span style="color:#475569">news-articles · sec-filings · market-data</span>                 <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>   Decouples producers from consumers · durable log · no data loss   <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
+<span style="color:#64748B">└──────────────────────────────┬──────────────────────────────────────┘</span>
+                               <span style="color:#64748B">│</span>
+                               <span style="color:#64748B">▼</span>
+
+<span style="color:#64748B">┌─────────────────── PROCESSING LAYER ────────────────────────────────┐</span>
+<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>               <span style="color:#5BA4FF">Apache PySpark</span>  (distributed)                        <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>         <span style="color:#475569">Deduplicate → Standardise → Categorise → Join</span>             <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>         <span style="color:#475569">Cross-source join on timestamp across all 4 sources</span>        <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>                     <span style="color:#475569">orchestrated by Airflow DAGs</span>                    <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
+<span style="color:#64748B">└────────────────┬─────────────────────────────┬───────────────────────┘</span>
+                 <span style="color:#64748B">│</span>                             <span style="color:#64748B">│</span>
+        <span style="color:#475569">structured data</span>             <span style="color:#475569">unstructured docs</span>
+                 <span style="color:#64748B">▼</span>                             <span style="color:#64748B">▼</span>
+
+<span style="color:#64748B">┌──────────────────┐</span>        <span style="color:#64748B">┌───────────────────────────────────────┐</span>
+<span style="color:#64748B">│</span> <span style="color:#3BFFA0">PostgreSQL</span>        <span style="color:#64748B">│</span>        <span style="color:#64748B">│</span> <span style="color:#FF6B6B">MongoDB Atlas</span>                          <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span> <span style="color:#475569">Supabase hosted</span>  <span style="color:#64748B">│</span>        <span style="color:#64748B">│</span> <span style="color:#475569">news_articles</span>                          <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>                  <span style="color:#64748B">│</span>        <span style="color:#64748B">│</span> <span style="color:#475569">sec_filing_documents</span>                   <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span> <span style="color:#475569">market_data</span>      <span style="color:#64748B">│</span>        <span style="color:#64748B">└───────────────────────────────────────┘</span>
+<span style="color:#64748B">│</span> <span style="color:#475569">sec_filings</span>      <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span> <span style="color:#475569">news_sentiment</span>   <span style="color:#64748B">│</span>        <span style="color:#64748B">┌───────────────────────────────────────┐</span>
+<span style="color:#64748B">│</span> <span style="color:#475569">stock_prices</span>     <span style="color:#64748B">│</span>        <span style="color:#64748B">│</span> <span style="color:#FFD166">Automation</span>                             <span style="color:#64748B">│</span>
+<span style="color:#64748B">└──────────┬───────┘</span>        <span style="color:#64748B">│</span> <span style="color:#475569">GitHub Actions · runs daily @ 06:00 UTC</span> <span style="color:#64748B">│</span>
+           <span style="color:#64748B">│</span>               <span style="color:#64748B">│</span> <span style="color:#475569">pipeline.py replaces manual Colab runs</span> <span style="color:#64748B">│</span>
+           <span style="color:#64748B">▼</span>               <span style="color:#64748B">└───────────────────────────────────────┘</span>
+
+<span style="color:#64748B">┌─────────────────────── SERVE LAYER ─────────────────────────────────┐</span>
+<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>           <span style="color:#5BA4FF">Streamlit Dashboard</span>  (fin-intelligence-dashboard.streamlit.app)  <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>   Overview · Market Data · Stock Prices · SEC Filings · News Feed   <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>               Cross-Source Analysis · Alert Simulation               <span style="color:#64748B">│</span>
+<span style="color:#64748B">│</span>                                                                      <span style="color:#64748B">│</span>
+<span style="color:#64748B">└──────────────────────────────────────────────────────────────────────┘</span>
+</div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+    c1, c2 = st.columns(2)
     with c1:
         st.markdown("### Data Sources")
         st.markdown("""| Source | Type | Volume | Frequency |
 |---|---|---|---|
-| **NewsAPI** | Headlines | ~500/day | Every 15 min |
-| **SEC Edgar** | 8-K & 10-K | ~50–200/day | On filing |
-| **FRED** | 12 macro series | Back to 2010 | Daily/Monthly |""")
-        st.markdown("### Stack")
-        st.markdown("""| Technology | Role |
-|---|---|
-| **Kafka** | Streaming buffer |
-| **PySpark** | Distributed transform + join |
-| **PostgreSQL** | Structured warehouse |
-| **MongoDB** | Document store |
-| **Airflow** | Orchestration |""")
+| **NewsAPI** | Headlines | ~2,000 articles/run | Every 15 min |
+| **SEC Edgar** | 8-K & 10-K | ~380 filings, 38 cos | On filing |
+| **FRED** | 12 macro series | ~15,000+ data points | Daily/Monthly |
+| **Alpaca** | Stock OHLCV | 38 tickers × 365 days | Daily bars |""")
+
+        st.markdown("### Technology Stack")
+        st.markdown("""| Technology | Role | Hosted on |
+|---|---|---|
+| **Kafka** | Streaming buffer (3 topics) | Docker / local |
+| **PySpark** | Distributed transform + join | Colab / local |
+| **PostgreSQL** | Structured warehouse (4 tables) | Supabase free |
+| **MongoDB** | Document store (2 collections) | Atlas M0 free |
+| **Airflow** | Pipeline orchestration | Docker / local |
+| **GitHub Actions** | Daily automation (06:00 UTC) | GitHub free |
+| **Streamlit Cloud** | Web dashboard hosting | Streamlit free |""")
+
     with c2:
-        st.markdown("### ETL Process")
-        st.code("""Extract
-├── NewsAPI    → Kafka: news-articles
-├── SEC Edgar  → Kafka: sec-filings
-└── FRED API   → Kafka: market-data
+        st.markdown("### Scalability Assessment")
+        st.markdown("""| Dimension | Current (demo) | Production path |
+|---|---|---|
+| **Tickers** | 38 | Add rows to config list |
+| **FRED series** | 12 | Add keys to FRED_SERIES dict |
+| **News keywords** | 20 | Up to 100 (free tier limit) |
+| **History depth** | 2010–present | Back to 1947 for macro |
+| **Update frequency** | Daily (GitHub Actions) | 3× daily within free limits |
+| **DB size (est.)** | ~50–100 MB now | ~2 GB/year at current rate |
+| **Kafka brokers** | 1 (demo) | Add brokers linearly |
+| **Spark workers** | 1 node (demo) | Add workers, same code |""")
 
-Transform (PySpark)
-├── Deduplicate by URL / accession number
-├── Standardise dates + parse types
-├── Tag news categories
-├── Flag 8-K material events
-└── Cross-source join on timestamp
-
-Load
-├── PostgreSQL ← market_data, sec_filings, news_sentiment
-└── MongoDB    ← news_articles, sec_filing_documents""", language="")
         st.markdown("### Cost Estimate")
         st.markdown("""| Component | Demo | Production |
 |---|---|---|
 | Kafka | $0 | $50–150/mo |
 | PySpark | $0 | $200–500/mo |
-| PostgreSQL | $0 | $15–50/mo |
-| MongoDB | $0 | $57–200/mo |
+| PostgreSQL | $0 (Supabase) | $15–50/mo |
+| MongoDB | $0 (Atlas M0) | $57–200/mo |
 | Airflow | $0 | $100–200/mo |
+| Alpaca data | $0 (free tier) | $0 (stays free) |
+| GitHub Actions | $0 (2,000 min/mo) | $0 |
+| Streamlit Cloud | $0 (free) | $0 |
 | **Total** | **$0** | **$422–1,100/mo** |""")
+
+        st.markdown("### Data Quality")
+        st.markdown("""| Dimension | Approach |
+|---|---|
+| **Completeness** | Deduplication by URL / accession number |
+| **Consistency** | PySpark schema enforcement + type casting |
+| **Timeliness** | Daily GitHub Actions + refresh button |
+| **Accuracy** | Primary sources only (no aggregators) |
+| **Licensing** | All free-tier / public domain sources |""")
