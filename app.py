@@ -113,22 +113,96 @@ DARK = "Dark" in _theme
 
 if DARK:
     st.markdown("""<style>
-      .main, [data-testid="stAppViewContainer"],
-      [data-testid="stApp"] { background: #0D1117 !important; }
-      section[data-testid="stMainBlockContainer"] > div { background: #0D1117 !important; }
-      .news-card { background: #161B27 !important; border-color:#1E3A5F !important; }
+      /* ── Main backgrounds ── */
+      .main,
+      [data-testid="stAppViewContainer"],
+      [data-testid="stApp"],
+      section[data-testid="stMainBlockContainer"],
+      section[data-testid="stMainBlockContainer"] > div,
+      [data-testid="block-container"]
+        { background: #0D1117 !important; }
+
+      /* ── Text ── */
+      h1,h2,h3,h4,h5,h6 { color: #F1F5F9 !important; }
+      p, span, label, div { color: #CBD5E1 !important; }
+      .sec { color: #3A86FF !important; }
+      .kpi-l, .kpi-s { color: rgba(203,213,225,.5) !important; }
+      [data-testid="stMarkdownContainer"] p { color: #CBD5E1 !important; }
+      [data-testid="stCaptionContainer"] { color: #64748B !important; }
+
+      /* ── Metrics ── */
+      [data-testid="stMetric"] { background: #161B27 !important; border-radius:10px; padding:10px; }
+      [data-testid="stMetricValue"] > div { color: #E2E8F0 !important; }
+      [data-testid="stMetricLabel"] > div { color: #64748B !important; }
+      [data-testid="stMetricDelta"] > div { color: #10B981 !important; }
+
+      /* ── Dataframes / tables ── */
+      [data-testid="stDataFrame"] { background: #161B27 !important; border-radius:10px; overflow:hidden; }
+      [data-testid="stDataFrame"] iframe { background: #161B27 !important; }
+      .stDataFrame > div { background: #161B27 !important; }
+      /* Force the internal Streamlit dataframe iframe content */
+      [data-testid="stDataFrame"] [class*="dataframe"] { background: #161B27 !important; color: #E2E8F0 !important; }
+
+      /* ── Form inputs ── */
+      [data-testid="stSelectbox"] > div > div,
+      [data-testid="stMultiSelect"] > div > div,
+      [data-testid="stTextInput"] > div > div
+        { background: #1F2937 !important; color: #E2E8F0 !important; border-color: #374151 !important; }
+      [data-testid="stSelectbox"] svg,
+      [data-testid="stMultiSelect"] svg { fill: #94A3B8 !important; }
+
+      /* ── Tabs ── */
+      [data-testid="stTabs"] [role="tab"] { color: #94A3B8 !important; }
+      [data-testid="stTabs"] [role="tab"][aria-selected="true"] { color: #3A86FF !important; border-bottom-color: #3A86FF !important; }
+      [data-testid="stTabsContent"] { background: #0D1117 !important; }
+
+      /* ── Expanders ── */
+      [data-testid="stExpander"] { background: #161B27 !important; border-color: #1E3A5F !important; }
+      [data-testid="stExpander"] summary { color: #E2E8F0 !important; }
+
+      /* ── Checkboxes and sliders ── */
+      [data-testid="stCheckbox"] label { color: #CBD5E1 !important; }
+      [data-testid="stSlider"] label { color: #CBD5E1 !important; }
+      [data-testid="stRadio"] label { color: #CBD5E1 !important; }
+
+      /* ── Custom cards ── */
+      .news-card { background: #161B27 !important; border-left-color: #3A86FF !important; }
       .news-title { color: #E2E8F0 !important; }
-      .macro-card { background: #161B27 !important; border-color:#1E3A5F !important; }
+      .news-meta  { color: #64748B !important; }
+      .macro-card { background: #161B27 !important; border-color: #1E3A5F !important; }
       .macro-value { color: #E2E8F0 !important; }
       .macro-label { color: #64748B !important; }
-      [data-testid="stMetricValue"] { color: #E2E8F0 !important; }
-      [data-testid="stMetricLabel"] { color: #64748B !important; }
-      .stDataFrame, .stDataFrame * { background: #161B27 !important; color: #E2E8F0 !important; }
-      h1,h2,h3,h4 { color: #F1F5F9 !important; }
-      p:not(.kpi-l):not(.kpi-s):not(.sec):not(.news-meta) { color: #CBD5E1 !important; }
-      .stSelectbox > div, .stMultiSelect > div,
-      .stTextInput > div { background: #1F2937 !important; color: #E2E8F0 !important; }
-      /* Fix chart backgrounds via JS injection */
+
+      /* ── Alerts / info boxes ── */
+      [data-testid="stAlert"] { background: #1F2937 !important; color: #E2E8F0 !important; }
+      [data-testid="stInfo"] { background: #1E3A5F !important; color: #BFDBFE !important; }
+      [data-testid="stSuccess"] { background: #064E3B !important; color: #A7F3D0 !important; }
+      [data-testid="stWarning"] { background: #78350F !important; color: #FDE68A !important; }
+
+      /* ── Plotly charts — override white bg via wrapper ── */
+      [data-testid="stPlotlyChart"] { background: #111827 !important; border-radius:10px; }
+      .js-plotly-plot .plotly .bg { fill: #111827 !important; }
+
+      /* ── Dividers ── */
+      hr { border-color: #1E293B !important; }
+
+      /* ── Arrow dataframe (renders in shadow DOM / iframe) ── */
+      /* We force the wrapper to show our bg so the iframe blends in */
+      [data-testid="stDataFrame"] > div {
+        background: #161B27 !important;
+        border-radius: 8px;
+      }
+      /* Column headers visible */
+      [data-testid="stDataFrame"] th {
+        background: #1F2937 !important;
+        color: #94A3B8 !important;
+      }
+      /* Row cells visible */
+      [data-testid="stDataFrame"] td {
+        color: #E2E8F0 !important;
+        background: #161B27 !important;
+      }
+
     </style>""", unsafe_allow_html=True)
 
 NAVY = "#080E1D"
@@ -231,8 +305,8 @@ with st.sidebar:
       <p style='font-size:10px;color:#475569;margin:2px 0 0'>Group 7 · Columbia University</p>
     </div>""", unsafe_allow_html=True)
 
-    page = st.radio("", ["🏠 Overview","📊 Market Data","📁 SEC Filings",
-                         "📰 News Feed","🔗 Cross-Source","ℹ️ About"],
+    page = st.radio("", ["🏠 Overview","📊 Market Data","📈 Stock Prices",
+                         "📁 SEC Filings","📰 News Feed","🔗 Cross-Source","ℹ️ About"],
                     label_visibility="collapsed")
     page = page.split(" ",1)[1]
 
@@ -443,7 +517,14 @@ if page == "Overview":
         rf=q("SELECT ticker,company_name,form_type,filed_at FROM sec_filings ORDER BY filed_at DESC LIMIT 12")
         if not rf.empty:
             rf["filed_at"]=pd.to_datetime(rf["filed_at"].astype(str)).dt.strftime("%Y-%m-%d")
-            st.dataframe(rf.rename(columns={"ticker":"Ticker","company_name":"Company","form_type":"Form","filed_at":"Filed"}),use_container_width=True,hide_index=True)
+            st.dataframe(
+                rf.rename(columns={"ticker":"Ticker","company_name":"Company","form_type":"Form","filed_at":"Filed"}),
+                use_container_width=True, hide_index=True,
+                column_config={
+                    "Form": st.column_config.TextColumn("Form", width="small"),
+                    "Filed": st.column_config.TextColumn("Filed", width="medium"),
+                }
+            )
 
     # Pipeline health strip
     st.markdown("---")
@@ -554,6 +635,155 @@ elif page == "Market Data":
 # ══════════════════════════════════════════════════════════════════════════════
 # SEC FILINGS
 # ══════════════════════════════════════════════════════════════════════════════
+elif page == "Stock Prices":
+    st.markdown('<p class="sec">Alpaca Markets · IEX feed</p>', unsafe_allow_html=True)
+    st.title("Stock Price Explorer")
+    st.caption("Daily OHLCV bars · adjusted for splits & dividends · powered by Alpaca free tier")
+
+    # ── Ticker selector ──────────────────────────────────────────────────────
+    sp_col1, sp_col2, sp_col3 = st.columns([2,1,1])
+    with sp_col1:
+        sp_tickers = st.multiselect("Compare tickers", tickers, default=tickers[:5])
+    with sp_col2:
+        sp_metric = st.selectbox("Show", ["Close price","Open","High","Low","Volume","VWAP"])
+    with sp_col3:
+        sp_norm = st.checkbox("Normalize to 100", value=False,
+                              help="Rebases all series to 100 at start of period for easy comparison")
+
+    metric_col = {"Close price":"close","Open":"open","High":"high",
+                  "Low":"low","Volume":"volume","VWAP":"vwap"}[sp_metric]
+
+    if not sp_tickers:
+        st.info("Select at least one ticker above")
+        st.stop()
+
+    # ── Fetch data ───────────────────────────────────────────────────────────
+    ph = ",".join(["%s"]*len(sp_tickers))
+    price_df = q(f"""
+        SELECT ticker, date, open, high, low, close, volume, vwap
+        FROM stock_prices
+        WHERE ticker IN ({ph}) AND date BETWEEN %s AND %s
+        ORDER BY date, ticker
+    """, params=tuple(sp_tickers) + (sd, ed))
+
+    if price_df.empty:
+        st.warning("No stock price data yet — add ALPACA_API_KEY + ALPACA_SECRET_KEY to GitHub Secrets and re-run the pipeline")
+        st.code("""# Add to GitHub Actions Secrets:
+ALPACA_API_KEY    = your_key_here
+ALPACA_SECRET_KEY = your_secret_here
+
+# Then go to Actions tab → Daily ETL Pipeline → Run workflow""")
+        st.stop()
+
+    price_df["date"] = pd.to_datetime(price_df["date"].astype(str))
+
+    # ── KPI row — latest close per ticker ────────────────────────────────────
+    latest = price_df.groupby("ticker").last().reset_index()
+    prev   = price_df.groupby("ticker").apply(lambda x: x.iloc[-2] if len(x) > 1 else x.iloc[-1]).reset_index(drop=True)
+
+    n_cols = min(len(sp_tickers), 5)
+    kpi_cols = st.columns(n_cols)
+    for i, (_, row) in enumerate(latest.iterrows()):
+        if i >= n_cols: break
+        prev_row = prev[prev["ticker"] == row["ticker"]]
+        prev_close = prev_row.iloc[0]["close"] if not prev_row.empty else row["close"]
+        chg = row["close"] - prev_close
+        pct = (chg / prev_close * 100) if prev_close else 0
+        arrow = "↑" if chg >= 0 else "↓"
+        color = "#10B981" if chg >= 0 else "#EF4444"
+        with kpi_cols[i]:
+            st.markdown(f"""
+            <div class="kpi">
+              <p class="kpi-l">{row["ticker"]}</p>
+              <p class="kpi-v kpi-v-{'teal' if chg >= 0 else 'coral'}">${row["close"]:.2f}</p>
+              <p class="kpi-s" style="color:{color}">{arrow} {abs(pct):.2f}% vs prev day</p>
+            </div>""", unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # ── Main price chart ─────────────────────────────────────────────────────
+    fig = go.Figure()
+    for ticker in sp_tickers:
+        td = price_df[price_df["ticker"] == ticker].copy()
+        if td.empty: continue
+        y = td[metric_col]
+        if sp_norm and y.iloc[0] != 0:
+            y = y / y.iloc[0] * 100
+        fig.add_trace(go.Scatter(
+            x=td["date"], y=y, name=ticker, mode="lines", line=dict(width=2)
+        ))
+    fig_style(fig, 400, dark=DARK)
+    title = f"{sp_metric} — {'Normalized (100 = period start)' if sp_norm else 'Absolute'}"
+    fig.update_layout(title=title, hovermode="x unified")
+    fig.update_xaxes(rangeslider_visible=True, rangeslider_thickness=0.05)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # ── Candlestick chart (single ticker) ─────────────────────────────────────
+    st.markdown("---")
+    st.markdown('<p class="sec">Candlestick chart</p>', unsafe_allow_html=True)
+    candle_ticker = st.selectbox("Select ticker for candlestick", sp_tickers)
+    candle_df = price_df[price_df["ticker"] == candle_ticker]
+
+    if not candle_df.empty:
+        fig_c = go.Figure(data=go.Candlestick(
+            x=candle_df["date"],
+            open=candle_df["open"], high=candle_df["high"],
+            low=candle_df["low"],   close=candle_df["close"],
+            name=candle_ticker,
+            increasing_line_color="#10B981", decreasing_line_color="#EF4444",
+        ))
+        # Add volume bars on secondary axis
+        fig_c.add_trace(go.Bar(
+            x=candle_df["date"], y=candle_df["volume"],
+            name="Volume", marker_color="rgba(58,134,255,0.2)",
+            yaxis="y2"
+        ))
+        fig_c.update_layout(
+            yaxis2=dict(overlaying="y", side="right", showgrid=False, title="Volume"),
+            xaxis_rangeslider_visible=False,
+        )
+        fig_style(fig_c, 400, dark=DARK)
+        fig_c.update_layout(title=f"{candle_ticker} — OHLCV candlestick")
+        st.plotly_chart(fig_c, use_container_width=True)
+
+    # ── Correlation heatmap between selected stocks ───────────────────────────
+    if len(sp_tickers) > 1:
+        st.markdown("---")
+        st.markdown('<p class="sec">Price correlation between selected tickers</p>', unsafe_allow_html=True)
+        pivot = price_df.pivot_table(index="date", columns="ticker", values="close")
+        returns = pivot.pct_change().dropna()
+        corr = returns.corr()
+        fig_corr = px.imshow(corr, color_continuous_scale=["#EF4444","white",BLUE],
+                              color_continuous_midpoint=0, text_auto=".2f", aspect="auto")
+        fig_corr.update_layout(
+            margin=dict(l=0,r=0,t=20,b=0), height=350,
+            paper_bgcolor="#111827" if DARK else "white",
+            font_color="#E2E8F0" if DARK else "#334155",
+            font_family="Inter",
+        )
+        st.plotly_chart(fig_corr, use_container_width=True)
+        st.caption("Correlation of daily returns — +1 = move together, -1 = move opposite")
+
+    # ── Volume leaders ────────────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown('<p class="sec">Average daily volume ranking</p>', unsafe_allow_html=True)
+    vol_rank = price_df.groupby("ticker")["volume"].mean().reset_index()
+    vol_rank.columns = ["Ticker","Avg Daily Volume"]
+    vol_rank = vol_rank.sort_values("Avg Daily Volume", ascending=True)
+    fig_vol = px.bar(vol_rank, x="Avg Daily Volume", y="Ticker",
+                     orientation="h", color_discrete_sequence=[BLUE])
+    fig_style(fig_vol, max(200, len(sp_tickers)*35), dark=DARK)
+    fig_vol.update_layout(title="Average daily volume (shares traded)")
+    st.plotly_chart(fig_vol, use_container_width=True)
+
+    # ── Raw data download ─────────────────────────────────────────────────────
+    if st.checkbox("Show raw price data"):
+        st.dataframe(price_df.sort_values(["ticker","date"], ascending=[True,False]),
+                     use_container_width=True, hide_index=True)
+        st.download_button("Download CSV", price_df.to_csv(index=False),
+                           "stock_prices.csv", "text/csv")
+
+
 elif page == "SEC Filings":
     st.markdown('<p class="sec">SEC Edgar</p>', unsafe_allow_html=True)
     st.title("SEC Filings Explorer")
@@ -585,7 +815,13 @@ elif page == "SEC Filings":
         st.markdown('<p class="sec">By form type</p>', unsafe_allow_html=True)
         bd=fil["form_type"].value_counts().reset_index(); bd.columns=["Form","n"]
         fp=px.pie(bd,names="Form",values="n",color_discrete_sequence=[BLUE,"#FF6B6B"],hole=0.5)
-        fp.update_layout(margin=dict(l=0,r=0,t=10,b=0),height=200,paper_bgcolor="white")
+        fp.update_layout(
+            margin=dict(l=0,r=0,t=10,b=0), height=200,
+            paper_bgcolor="#111827" if DARK else "white",
+            plot_bgcolor="#111827" if DARK else "white",
+            font_color="#E2E8F0" if DARK else "#334155",
+            legend=dict(font=dict(color="#E2E8F0" if DARK else "#334155")),
+        )
         st.plotly_chart(fp,use_container_width=True)
     with ch2:
         st.markdown('<p class="sec">Monthly timeline</p>', unsafe_allow_html=True)
