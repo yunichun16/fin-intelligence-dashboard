@@ -678,24 +678,33 @@ ALPACA_SECRET_KEY = your_secret_here
     price_df["date"] = pd.to_datetime(price_df["date"].astype(str))
 
     # ── KPI row — latest close per ticker ────────────────────────────────────
-    latest = price_df.groupby("ticker").last().reset_index()
-    prev   = price_df.groupby("ticker").apply(lambda x: x.iloc[-2] if len(x) > 1 else x.iloc[-1]).reset_index(drop=True)
+    # Build latest and previous close per ticker safely
+    latest_dict = {}
+    prev_dict   = {}
+    for tkr in sp_tickers:
+        td = price_df[price_df["ticker"] == tkr].sort_values("date")
+        if len(td) >= 2:
+            latest_dict[tkr] = td.iloc[-1]["close"]
+            prev_dict[tkr]   = td.iloc[-2]["close"]
+        elif len(td) == 1:
+            latest_dict[tkr] = td.iloc[-1]["close"]
+            prev_dict[tkr]   = td.iloc[-1]["close"]
 
     n_cols = min(len(sp_tickers), 5)
     kpi_cols = st.columns(n_cols)
-    for i, (_, row) in enumerate(latest.iterrows()):
-        if i >= n_cols: break
-        prev_row = prev[prev["ticker"] == row["ticker"]]
-        prev_close = prev_row.iloc[0]["close"] if not prev_row.empty else row["close"]
-        chg = row["close"] - prev_close
-        pct = (chg / prev_close * 100) if prev_close else 0
+    for i, tkr in enumerate(sp_tickers[:n_cols]):
+        lat  = latest_dict.get(tkr, 0)
+        prev = prev_dict.get(tkr, lat)
+        chg  = lat - prev
+        pct  = (chg / prev * 100) if prev else 0
         arrow = "↑" if chg >= 0 else "↓"
         color = "#10B981" if chg >= 0 else "#EF4444"
+        accent = "teal" if chg >= 0 else "coral"
         with kpi_cols[i]:
             st.markdown(f"""
             <div class="kpi">
-              <p class="kpi-l">{row["ticker"]}</p>
-              <p class="kpi-v kpi-v-{'teal' if chg >= 0 else 'coral'}">${row["close"]:.2f}</p>
+              <p class="kpi-l">{tkr}</p>
+              <p class="kpi-v kpi-v-{accent}">${lat:.2f}</p>
               <p class="kpi-s" style="color:{color}">{arrow} {abs(pct):.2f}% vs prev day</p>
             </div>""", unsafe_allow_html=True)
 
