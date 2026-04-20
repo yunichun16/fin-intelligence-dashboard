@@ -186,21 +186,42 @@ if DARK:
       /* ── Dividers ── */
       hr { border-color: #1E293B !important; }
 
-      /* ── Arrow dataframe (renders in shadow DOM / iframe) ── */
-      /* We force the wrapper to show our bg so the iframe blends in */
+      /* ── Dataframe — match main dark background exactly ── */
+      [data-testid="stDataFrame"] { border: none !important; }
       [data-testid="stDataFrame"] > div {
-        background: #161B27 !important;
-        border-radius: 8px;
+        background: #0D1117 !important;
+        border: 1px solid #1E293B !important;
+        border-radius: 10px !important;
       }
-      /* Column headers visible */
+      /* Remove the default white iframe background */
+      [data-testid="stDataFrame"] iframe {
+        background: transparent !important;
+      }
+      /* Header row */
       [data-testid="stDataFrame"] th {
-        background: #1F2937 !important;
-        color: #94A3B8 !important;
+        background: #111827 !important;
+        color: #64748B !important;
+        font-size: 11px !important;
+        letter-spacing: 0.05em !important;
+        border-bottom: 1px solid #1E293B !important;
+        font-weight: 600 !important;
       }
-      /* Row cells visible */
+      /* Data cells */
       [data-testid="stDataFrame"] td {
-        color: #E2E8F0 !important;
-        background: #161B27 !important;
+        color: #CBD5E1 !important;
+        background: #0D1117 !important;
+        border-bottom: 1px solid #111827 !important;
+        font-size: 12px !important;
+      }
+      /* Hover row highlight */
+      [data-testid="stDataFrame"] tr:hover td {
+        background: #111827 !important;
+      }
+      /* Index column */
+      [data-testid="stDataFrame"] th:first-child,
+      [data-testid="stDataFrame"] td:first-child {
+        background: #111827 !important;
+        color: #475569 !important;
       }
 
     </style>""", unsafe_allow_html=True)
@@ -288,6 +309,42 @@ def mongo():
         return None
 
 @st.cache_data(ttl=300, show_spinner=False)
+def html_table(df: "pd.DataFrame", dark: bool = False) -> str:
+    """Render a DataFrame as a styled HTML table that works in both light and dark mode."""
+    bg     = "#0D1117" if dark else "#FFFFFF"
+    hdr_bg = "#111827" if dark else "#F8FAFF"
+    hdr_c  = "#64748B" if dark else "#64748B"
+    row_c  = "#CBD5E1" if dark else "#1E293B"
+    brd    = "#1E293B" if dark else "#E2E8F0"
+    alt_bg = "#111827" if dark else "#F8FAFF"
+
+    cols = df.columns.tolist()
+    header = "".join(
+        f'<th style="background:{hdr_bg};color:{hdr_c};padding:8px 12px;'
+        f'text-align:left;font-size:11px;font-weight:600;letter-spacing:.05em;'
+        f'border-bottom:1px solid {brd};white-space:nowrap">{c}</th>'
+        for c in cols
+    )
+    rows = ""
+    for i, (_, row) in enumerate(df.iterrows()):
+        rbg = alt_bg if i % 2 == 0 else bg
+        cells = "".join(
+            f'<td style="background:{rbg};color:{row_c};padding:7px 12px;'
+            f'font-size:12px;border-bottom:1px solid {brd};white-space:nowrap">'
+            f'{str(v)}</td>'
+            for v in row.values
+        )
+        rows += f"<tr>{cells}</tr>"
+
+    return (
+        f'<div style="overflow-x:auto;border-radius:10px;border:1px solid {brd};margin-bottom:1rem">'
+        f'<table style="width:100%;border-collapse:collapse;background:{bg}">'
+        f"<thead><tr>{header}</tr></thead>"
+        f"<tbody>{rows}</tbody>"
+        f"</table></div>"
+    )
+
+
 def q(sql, params=None):
     conn = pg()
     if conn is None: return pd.DataFrame()
@@ -517,14 +574,8 @@ if page == "Overview":
         rf=q("SELECT ticker,company_name,form_type,filed_at FROM sec_filings ORDER BY filed_at DESC LIMIT 12")
         if not rf.empty:
             rf["filed_at"]=pd.to_datetime(rf["filed_at"].astype(str)).dt.strftime("%Y-%m-%d")
-            st.dataframe(
-                rf.rename(columns={"ticker":"Ticker","company_name":"Company","form_type":"Form","filed_at":"Filed"}),
-                use_container_width=True, hide_index=True,
-                column_config={
-                    "Form": st.column_config.TextColumn("Form", width="small"),
-                    "Filed": st.column_config.TextColumn("Filed", width="medium"),
-                }
-            )
+            rf_display = rf.rename(columns={"ticker":"Ticker","company_name":"Company","form_type":"Form","filed_at":"Filed"})
+            st.markdown(html_table(rf_display, dark=DARK), unsafe_allow_html=True)
 
     # Pipeline health strip
     st.markdown("---")
@@ -628,7 +679,7 @@ elif page == "Market Data":
         st.plotly_chart(fc,use_container_width=True)
 
     if st.checkbox("Show raw data + download"):
-        st.dataframe(data.sort_values("date",ascending=False).head(500),use_container_width=True,hide_index=True)
+        st.markdown(html_table(data.sort_values("date",ascending=False).head(500), dark=DARK), unsafe_allow_html=True)
         st.download_button("Download CSV",data.to_csv(index=False),f"{code}.csv","text/csv")
 
 
@@ -787,8 +838,7 @@ ALPACA_SECRET_KEY = your_secret_here
 
     # ── Raw data download ─────────────────────────────────────────────────────
     if st.checkbox("Show raw price data"):
-        st.dataframe(price_df.sort_values(["ticker","date"], ascending=[True,False]),
-                     use_container_width=True, hide_index=True)
+        st.markdown(html_table(price_df.sort_values(["ticker","date"], ascending=[True,False]), dark=DARK), unsafe_allow_html=True)
         st.download_button("Download CSV", price_df.to_csv(index=False),
                            "stock_prices.csv", "text/csv")
 
@@ -847,7 +897,7 @@ elif page == "SEC Filings":
     st.markdown("---")
     disp=fil[["ticker","company_name","form_type","filed_at","period","is_material_event"]].copy()
     disp.columns=["Ticker","Company","Form","Filed","Period","Material"]
-    st.dataframe(disp,use_container_width=True,hide_index=True)
+    st.markdown(html_table(disp, dark=DARK), unsafe_allow_html=True)
     st.download_button("Download CSV",fil.to_csv(index=False),"filings.csv","text/csv")
 
     with st.expander(f"Document links ({fil['document_url'].notna().sum()} available)"):
@@ -986,7 +1036,8 @@ elif page == "Cross-Source":
             st.success(f"✓ Found {len(cd)} filings with nearby news coverage using a ±{window}-day window")
         else:
             st.info(f"No overlaps found with ±{window}-day window — try increasing the window above or re-running the pipeline with more keywords")
-        st.dataframe(cross.rename(columns={"ticker":"Ticker","company_name":"Company","form_type":"Form","filed_at":"Filed","news_same_day":f"News within ±{window}d"}),use_container_width=True,hide_index=True)
+        _cross_disp = cross.rename(columns={"ticker":"Ticker","company_name":"Company","form_type":"Form","filed_at":"Filed","news_same_day":f"News within ±{window}d"})
+        st.markdown(html_table(_cross_disp, dark=DARK), unsafe_allow_html=True)
 
     with tab2:
         ind=st.selectbox("Indicator to plot",["SP500","DFF","GS10","VIXCLS","CPIAUCSL","UNRATE"])
@@ -1029,7 +1080,7 @@ elif page == "Cross-Source":
             if not cf.empty:
                 st.metric("Total filings",len(cf)); st.metric("8-K events",int(cf["is_material_event"].sum()))
                 cf["filed_at"]=pd.to_datetime(cf["filed_at"]).dt.strftime("%Y-%m-%d")
-                st.dataframe(cf[["form_type","filed_at","period"]],use_container_width=True,hide_index=True)
+                st.markdown(html_table(cf[["form_type","filed_at","period"]].rename(columns={"form_type":"Form","filed_at":"Filed","period":"Period"}), dark=DARK), unsafe_allow_html=True)
         with cb:
             st.markdown(f'<p class="sec">{pick} — annual filing frequency</p>', unsafe_allow_html=True)
             if not cf.empty:
