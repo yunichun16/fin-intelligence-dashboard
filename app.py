@@ -109,35 +109,44 @@ with _mode_col1:
 with _mode_col2:
     pass
 _theme = st.sidebar.radio("", ["☀️ Light", "🌙 Dark"], horizontal=True, label_visibility="collapsed")
-st.markdown(f"""<script>
-  var root = window.parent.document.querySelector('[data-testid="stAppViewContainer"]');
-  if (root) root.setAttribute('data-theme', '{"dark" if "Dark" in _theme else "light"}');
-</script>""", unsafe_allow_html=True)
-if "Dark" in _theme:
+DARK = "Dark" in _theme
+
+if DARK:
     st.markdown("""<style>
-      .main, [data-testid="stAppViewContainer"] { background: #0D1117 !important; }
-      .news-card { background: #161B27 !important; }
+      .main, [data-testid="stAppViewContainer"],
+      [data-testid="stApp"] { background: #0D1117 !important; }
+      section[data-testid="stMainBlockContainer"] > div { background: #0D1117 !important; }
+      .news-card { background: #161B27 !important; border-color:#1E3A5F !important; }
       .news-title { color: #E2E8F0 !important; }
       .macro-card { background: #161B27 !important; border-color:#1E3A5F !important; }
       .macro-value { color: #E2E8F0 !important; }
-      [data-testid="stMetric"] { background: #161B27 !important; border-radius:8px; padding:8px; }
-      .stDataFrame { background: #161B27 !important; }
-      p, span, div { color: #CBD5E1; }
-      h1,h2,h3 { color: #F1F5F9 !important; }
+      .macro-label { color: #64748B !important; }
+      [data-testid="stMetricValue"] { color: #E2E8F0 !important; }
+      [data-testid="stMetricLabel"] { color: #64748B !important; }
+      .stDataFrame, .stDataFrame * { background: #161B27 !important; color: #E2E8F0 !important; }
+      h1,h2,h3,h4 { color: #F1F5F9 !important; }
+      p:not(.kpi-l):not(.kpi-s):not(.sec):not(.news-meta) { color: #CBD5E1 !important; }
+      .stSelectbox > div, .stMultiSelect > div,
+      .stTextInput > div { background: #1F2937 !important; color: #E2E8F0 !important; }
+      /* Fix chart backgrounds via JS injection */
     </style>""", unsafe_allow_html=True)
 
 NAVY = "#080E1D"
 BLUE = "#3A86FF"
 COLORS = [BLUE, "#FF6B6B", "#FFD166", "#06D6A0", "#8338EC", "#FB5607", "#3A86FF", "#FFBE0B"]
 
-def fig_style(fig, h=300):
+def fig_style(fig, h=300, dark=False):
+    bg   = "#111827" if dark else "white"
+    grid = "#1F2937" if dark else "#F1F5F9"
+    line = "#374151" if dark else "#E2E8F0"
+    txt  = "#E2E8F0" if dark else "#334155"
     fig.update_layout(
-        plot_bgcolor="white", paper_bgcolor="white", font_family="Inter",
+        plot_bgcolor=bg, paper_bgcolor=bg, font_family="Inter", font_color=txt,
         margin=dict(l=8,r=8,t=28,b=8), height=h,
-        xaxis=dict(showgrid=False, showline=True, linecolor="#E2E8F0", title=""),
-        yaxis=dict(showgrid=True, gridcolor="#F1F5F9", title=""),
-        legend=dict(bgcolor="rgba(0,0,0,0)", borderwidth=0),
-        hoverlabel=dict(bgcolor="white", font_size=12),
+        xaxis=dict(showgrid=False, showline=True, linecolor=line, title="", color=txt),
+        yaxis=dict(showgrid=True, gridcolor=grid, title="", color=txt),
+        legend=dict(bgcolor="rgba(0,0,0,0)", borderwidth=0, font_color=txt),
+        hoverlabel=dict(bgcolor=bg, font_size=12, font_color=txt),
     )
     return fig
 
@@ -279,6 +288,7 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════════════════════════
 # OVERVIEW
 # ══════════════════════════════════════════════════════════════════════════════
+if "DARK" not in dir(): DARK = False  # fallback
 if page == "Overview":
     st.markdown('<p class="sec">Financial Intelligence Platform</p>', unsafe_allow_html=True)
     st.title("Market Overview")
@@ -286,10 +296,8 @@ if page == "Overview":
     # Auto-refresh handler
     if auto_refresh:
         import time as _t
-        _placeholder = st.empty()
-        for _i in range(30, 0, -1):
-            _placeholder.caption(f"🔴 Live · {today.strftime('%B %d, %Y')} · Supabase + MongoDB Atlas · refreshing in {_i}s")
-            _t.sleep(1)
+        st.caption(f"🔴 Live · {today.strftime('%B %d, %Y')} · auto-refreshing every 30s")
+        _t.sleep(30)
         st.cache_data.clear()
         st.rerun()
     else:
@@ -361,7 +369,7 @@ if page == "Overview":
                 sp["ma"]=sp["value"].rolling(50).mean()
                 fig.add_trace(go.Scatter(x=sp["date"],y=sp["ma"],name="50d MA",
                                          line=dict(color="#FF6B6B",width=1.5,dash="dot")))
-            fig_style(fig,290); fig.update_xaxes(rangeslider_visible=True,rangeslider_thickness=0.05)
+            fig_style(fig, 290, dark=DARK); fig.update_xaxes(rangeslider_visible=True,rangeslider_thickness=0.05)
             st.plotly_chart(fig,use_container_width=True)
         else:
             st.info("No S&P 500 data — run pipeline first")
@@ -373,7 +381,7 @@ if page == "Overview":
         if not fb.empty:
             fig2=px.bar(fb,x="ticker",y="n",color="form_type",barmode="stack",
                         color_discrete_map={"8-K":"#FF6B6B","10-K":BLUE})
-            fig_style(fig2,290); st.plotly_chart(fig2,use_container_width=True)
+            fig_style(fig2, 290, dark=DARK); st.plotly_chart(fig2,use_container_width=True)
 
     st.markdown("---")
     col3,col4 = st.columns([2,3])
@@ -501,7 +509,7 @@ elif page == "Market Data":
                 df["date"]=pd.to_datetime(df["date"]); base=df.iloc[0]["value"]
                 df["norm"]=df["value"]/base*100
                 fig.add_trace(go.Scatter(x=df["date"],y=df["norm"],name=nm[:30],mode="lines",line=dict(width=2)))
-        fig_style(fig,380); fig.update_layout(title="Normalized to 100 at period start",yaxis_title="Index")
+        fig_style(fig, 380, dark=DARK); fig.update_layout(title="Normalized to 100 at period start",yaxis_title="Index")
         st.plotly_chart(fig,use_container_width=True)
     else:
         ma_w=st.slider("Moving average (days, 0=off)",0,200,0,10)
@@ -520,7 +528,7 @@ elif page == "Market Data":
             for rs,re,lbl in [("2001-03-01","2001-11-01","Dot-com"),("2007-12-01","2009-06-01","GFC"),("2020-02-01","2020-04-01","COVID")]:
                 fig.add_vrect(x0=rs,x1=re,fillcolor="rgba(255,107,107,0.1)",line_width=0,annotation_text=lbl,annotation_font_size=10)
         if log_s: fig.update_yaxes(type="log")
-        fig_style(fig,400); fig.update_layout(title=sel_name)
+        fig_style(fig, 400, dark=DARK); fig.update_layout(title=sel_name)
         fig.update_xaxes(rangeslider_visible=True,rangeslider_thickness=0.05)
         st.plotly_chart(fig,use_container_width=True)
 
@@ -529,13 +537,13 @@ elif page == "Market Data":
     with a1:
         st.markdown('<p class="sec">Value distribution</p>', unsafe_allow_html=True)
         fh=px.histogram(data,x="value",nbins=50,color_discrete_sequence=[BLUE])
-        fig_style(fh,200); st.plotly_chart(fh,use_container_width=True)
+        fig_style(fh, 200, dark=DARK); st.plotly_chart(fh,use_container_width=True)
     with a2:
         st.markdown('<p class="sec">Period-over-period % change</p>', unsafe_allow_html=True)
         data["pct"]=data["value"].pct_change()*100
         fc=px.bar(data.dropna(),x="date",y="pct",color="pct",
                   color_continuous_scale=["#FF6B6B","#F8FAFF",BLUE],color_continuous_midpoint=0)
-        fig_style(fc,200); fc.update_coloraxes(showscale=False)
+        fig_style(fc, 200, dark=DARK); fc.update_coloraxes(showscale=False)
         st.plotly_chart(fc,use_container_width=True)
 
     if st.checkbox("Show raw data + download"):
@@ -584,12 +592,12 @@ elif page == "SEC Filings":
         tl=fil.copy(); tl["filed_at"]=pd.to_datetime(tl["filed_at"].astype(str)); tl["month"]=tl["filed_at"].dt.strftime("%Y-%m")
         ml=tl.groupby(["month","form_type"]).size().reset_index(name="n")
         ft=px.bar(ml,x="month",y="n",color="form_type",barmode="stack",color_discrete_map={"8-K":"#FF6B6B","10-K":BLUE})
-        fig_style(ft,200); st.plotly_chart(ft,use_container_width=True)
+        fig_style(ft, 200, dark=DARK); st.plotly_chart(ft,use_container_width=True)
     with ch3:
         st.markdown('<p class="sec">By ticker</p>', unsafe_allow_html=True)
         bt=fil.groupby("ticker").size().reset_index(name="n").sort_values("n",ascending=True)
         fb2=px.bar(bt,x="n",y="ticker",orientation="h",color_discrete_sequence=[BLUE])
-        fig_style(fb2,200); st.plotly_chart(fb2,use_container_width=True)
+        fig_style(fb2, 200, dark=DARK); st.plotly_chart(fb2,use_container_width=True)
 
     st.markdown("---")
     disp=fil[["ticker","company_name","form_type","filed_at","period","is_material_event"]].copy()
@@ -621,7 +629,7 @@ elif page == "News Feed":
     if not cat_df.empty:
         fc=px.bar(cat_df,x="category",y="n",color="category",
                   color_discrete_map={"earnings":"#10B981","m&a":"#8B5CF6","macro":"#F59E0B","regulatory":"#EF4444","general":"#94A3B8"})
-        fig_style(fc,140); fc.update_layout(showlegend=False,margin=dict(l=0,r=0,t=0,b=0))
+        fig_style(fc, 140, dark=DARK); fc.update_layout(showlegend=False,margin=dict(l=0,r=0,t=0,b=0))
         st.plotly_chart(fc,use_container_width=True)
 
     mc=mongo()
@@ -728,7 +736,7 @@ elif page == "Cross-Source":
             fig=px.scatter(cd,x="filed_at",y="ticker",size="news_same_day",color="form_type",
                            color_discrete_map={"8-K":"#EF4444","10-K":BLUE},
                            hover_data={"company_name":True,"news_same_day":True},size_max=35)
-            fig_style(fig,350); fig.update_layout(title=f"Filing events with news coverage within ±{window} days (bubble = article count)")
+            fig_style(fig, 350, dark=DARK); fig.update_layout(title=f"Filing events with news coverage within ±{window} days (bubble = article count)")
             st.plotly_chart(fig,use_container_width=True)
             st.success(f"✓ Found {len(cd)} filings with nearby news coverage using a ±{window}-day window")
         else:
@@ -752,7 +760,7 @@ elif page == "Cross-Source":
                         fig2.add_trace(go.Scatter(x=sub["date"],y=sub["value"],mode="markers",name=f"{ftype} filing",
                                                   marker=dict(color=color,size=10,symbol=sym),text=sub["ticker"],
                                                   hovertemplate="%{text} "+ftype+"<br>%{x}<extra></extra>"))
-            fig_style(fig2,400); fig2.update_layout(legend=dict(orientation="h",y=1.05))
+            fig_style(fig2, 400, dark=DARK); fig2.update_layout(legend=dict(orientation="h",y=1.05))
             st.plotly_chart(fig2,use_container_width=True)
 
     with tab3:
@@ -783,7 +791,7 @@ elif page == "Cross-Source":
                 cf2=cf.copy(); cf2["filed_at"]=pd.to_datetime(cf2["filed_at"]); cf2["year"]=cf2["filed_at"].dt.year
                 yr=cf2.groupby(["year","form_type"]).size().reset_index(name="n")
                 fy=px.bar(yr,x="year",y="n",color="form_type",barmode="group",color_discrete_map={"8-K":"#EF4444","10-K":BLUE})
-                fig_style(fy,260); st.plotly_chart(fy,use_container_width=True)
+                fig_style(fy, 260, dark=DARK); st.plotly_chart(fy,use_container_width=True)
 
     with tab5:
         st.markdown("### 🚨 8-K Material Event Alert Simulation")
@@ -843,7 +851,7 @@ elif page == "Cross-Source":
                 weekly = alerts.groupby(["week","ticker"]).size().reset_index(name="alerts")
                 fig_a = px.bar(weekly, x="week", y="alerts", color="ticker",
                                color_discrete_sequence=COLORS, title="Alerts by week")
-                fig_style(fig_a, 240)
+                fig_style(fig_a, 240, dark=DARK)
                 st.plotly_chart(fig_a, use_container_width=True)
             else:
                 st.info(f"No {alert_form.split()[0]} filings found for selected tickers in the last {alert_lookback} days")
