@@ -35,6 +35,8 @@ jobs:
           SUPABASE_USER:      ${{ secrets.SUPABASE_USER }}
           SUPABASE_PASSWORD:  ${{ secrets.SUPABASE_PASSWORD }}
           MONGO_URI:          ${{ secrets.MONGO_URI }}
+          ALPACA_API_KEY:     ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY:  ${{ secrets.ALPACA_SECRET_KEY }}
         run: python pipeline.py
 
       - name: Upload run log
