@@ -20,23 +20,54 @@ st.set_page_config(
 st.markdown("""
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  /* ── Base typography ── */
   html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
   h1, h2, h3 { font-family: 'Syne', sans-serif !important; font-weight: 700 !important; letter-spacing: -0.02em; }
-  [data-testid="stSidebar"] { background: #080E1D; }
+
+  /* ── Sidebar — always dark ── */
+  [data-testid="stSidebar"] { background: #080E1D !important; }
   [data-testid="stSidebar"] * { color: #CBD5E1 !important; }
   [data-testid="stSidebar"] hr { border-color: #1E293B !important; }
+  [data-testid="stSidebar"] .stSelectbox > div { background: #0F1729 !important; border-color: #1E3A5F !important; }
+  [data-testid="stSidebar"] .stMultiSelect > div { background: #0F1729 !important; border-color: #1E3A5F !important; }
+
+  /* ── Light mode (default) ── */
   .main { background: #F8FAFF; }
   .block-container { padding-top: 1.5rem; }
+
+  /* ── Dark mode overrides ── */
+  @media (prefers-color-scheme: dark) {
+    .main { background: #0D1117; }
+    .news-card { background: #161B27 !important; border-color: #1E3A5F !important; }
+    .news-title { color: #E2E8F0 !important; }
+  }
+  [data-theme="dark"] .main { background: #0D1117; }
+  [data-theme="dark"] .news-card { background: #161B27 !important; }
+  [data-theme="dark"] .news-title { color: #E2E8F0 !important; }
+
+  /* ── KPI cards — dark always, bright accent numbers ── */
   .kpi { background: linear-gradient(135deg,#080E1D,#162040); border-radius:14px;
          padding:1.3rem 1.5rem; color:white; border:1px solid #1E3A5F; margin-bottom:.5rem; }
   .kpi-l { font-size:9px; letter-spacing:.14em; text-transform:uppercase; opacity:.5; margin:0; }
-  .kpi-v { font-family:'Syne',sans-serif; font-size:32px; font-weight:700; margin:4px 0 2px; letter-spacing:-.03em; }
+  .kpi-v { font-family:'Syne',sans-serif; font-size:34px; font-weight:700; margin:4px 0 2px;
+            letter-spacing:-.03em; color:#3BFFA0; text-shadow: 0 0 20px rgba(59,255,160,.3); }
+  .kpi-v-blue  { color:#5BA4FF; text-shadow: 0 0 20px rgba(91,164,255,.3); }
+  .kpi-v-amber { color:#FFD166; text-shadow: 0 0 20px rgba(255,209,102,.3); }
+  .kpi-v-coral { color:#FF6B6B; text-shadow: 0 0 20px rgba(255,107,107,.3); }
+  .kpi-v-teal  { color:#3BFFA0; text-shadow: 0 0 20px rgba(59,255,160,.3); }
   .kpi-s { font-size:11px; opacity:.45; margin:0; }
+
+  /* ── Section labels ── */
   .sec { font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:#3A86FF; font-weight:600; margin-bottom:2px; }
+
+  /* ── News cards ── */
   .news-card { background:white; border-radius:12px; padding:14px 16px;
                border-left:3px solid #3A86FF; margin-bottom:10px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
   .news-title { font-size:13px; font-weight:500; color:#080E1D; margin:0 0 4px; line-height:1.4; }
   .news-meta  { font-size:11px; color:#94A3B8; margin:0; }
+
+  /* ── Badges ── */
   .badge { display:inline-block; padding:1px 8px; border-radius:20px; font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
   .be { background:#D1FAE5; color:#065F46; }
   .bm { background:#EDE9FE; color:#4C1D95; }
@@ -45,13 +76,55 @@ st.markdown("""
   .bg { background:#F1F5F9; color:#475569; }
   .b8 { background:#FEE2E2; color:#991B1B; }
   .b10{ background:#DBEAFE; color:#1E40AF; }
+
+  /* ── Ticker pill ── */
   .tk { font-family:'JetBrains Mono',monospace; font-size:11px; background:#EFF6FF;
         color:#1D4ED8; padding:1px 7px; border-radius:5px; font-weight:500; }
+
+  /* ── Insight box ── */
   .insight { background:#EFF6FF; border:1px solid #BFDBFE; border-radius:12px;
              padding:12px 16px; margin-bottom:1rem; font-size:13px; color:#1E40AF; line-height:1.6; }
+
+  /* ── Macro metric cards ── */
+  .macro-card {
+    background: white; border:1px solid #E2E8F0; border-radius:12px;
+    padding:14px 16px; margin-bottom:8px;
+  }
+  .macro-label { font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:#94A3B8; margin:0; }
+  .macro-value { font-family:'Syne',sans-serif; font-size:24px; font-weight:700; margin:4px 0 2px; color:#080E1D; }
+  .macro-up   { color:#10B981; font-size:13px; font-weight:600; }
+  .macro-down { color:#EF4444; font-size:13px; font-weight:600; }
+  .macro-flat { color:#94A3B8; font-size:13px; }
+
+  /* ── Hide Streamlit chrome ── */
   #MainMenu, footer, header { visibility:hidden; }
 </style>
 """, unsafe_allow_html=True)
+
+# ── Dark/light mode toggle in sidebar ─────────────────────────────────────────
+# Streamlit natively respects system preference, but we also offer a manual toggle
+_mode_col1, _mode_col2 = st.sidebar.columns([3,1])
+with _mode_col1:
+    st.sidebar.markdown('<p style="font-size:9px;color:#475569;letter-spacing:.1em;margin-bottom:4px">APPEARANCE</p>', unsafe_allow_html=True)
+with _mode_col2:
+    pass
+_theme = st.sidebar.radio("", ["☀️ Light", "🌙 Dark"], horizontal=True, label_visibility="collapsed")
+st.markdown(f"""<script>
+  var root = window.parent.document.querySelector('[data-testid="stAppViewContainer"]');
+  if (root) root.setAttribute('data-theme', '{"dark" if "Dark" in _theme else "light"}');
+</script>""", unsafe_allow_html=True)
+if "Dark" in _theme:
+    st.markdown("""<style>
+      .main, [data-testid="stAppViewContainer"] { background: #0D1117 !important; }
+      .news-card { background: #161B27 !important; }
+      .news-title { color: #E2E8F0 !important; }
+      .macro-card { background: #161B27 !important; border-color:#1E3A5F !important; }
+      .macro-value { color: #E2E8F0 !important; }
+      [data-testid="stMetric"] { background: #161B27 !important; border-radius:8px; padding:8px; }
+      .stDataFrame { background: #161B27 !important; }
+      p, span, div { color: #CBD5E1; }
+      h1,h2,h3 { color: #F1F5F9 !important; }
+    </style>""", unsafe_allow_html=True)
 
 NAVY = "#080E1D"
 BLUE = "#3A86FF"
@@ -157,6 +230,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown('<p style="font-size:9px;color:#475569;letter-spacing:.1em">DATE RANGE</p>', unsafe_allow_html=True)
     preset = st.selectbox("", ["Last 30 days","Last 90 days","Last 1 year","Last 5 years","Since 2010","Custom"],
+                          index=4,   # default to "Since 2010"
                           label_visibility="collapsed")
     today = date.today()
     presets = {"Last 30 days":30,"Last 90 days":90,"Last 1 year":365,"Last 5 years":1825}
@@ -191,6 +265,16 @@ with st.sidebar:
         import time as _time
         st.markdown('<p style="font-size:10px;color:#3A86FF;margin:0">🔴 Live · refreshing every 30s</p>', unsafe_allow_html=True)
 
+    if st.button("🔄 Refresh data", use_container_width=True):
+        st.cache_data.clear()
+        st.toast("✓ Data refreshed from database", icon="🔄")
+        st.rerun()
+
+    st.markdown('''<p style="font-size:9px;color:#475569;line-height:1.6;margin-top:4px">
+    Refresh pulls latest data from Supabase + Atlas.<br>
+    New articles ingested daily at 06:00 UTC via GitHub Actions.
+    </p>''', unsafe_allow_html=True)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # OVERVIEW
@@ -219,16 +303,16 @@ if page == "Overview":
         (SELECT COUNT(DISTINCT ticker) FROM sec_filings) ticker_count""")
 
     c1,c2,c3,c4,c5 = st.columns(5)
-    def kpi(col,lbl,val,sub=""):
+    def kpi(col,lbl,val,sub="",accent="kpi-v"):
         with col:
-            st.markdown(f'<div class="kpi"><p class="kpi-l">{lbl}</p><p class="kpi-v">{val}</p><p class="kpi-s">{sub}</p></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="kpi"><p class="kpi-l">{lbl}</p><p class="{accent}">{val}</p><p class="kpi-s">{sub}</p></div>', unsafe_allow_html=True)
     if not counts.empty:
         r = counts.iloc[0]
-        kpi(c1,"Market data points",f"{int(r.market_rows):,}",f"{int(r.series_count)} FRED series")
-        kpi(c2,"SEC filings",f"{int(r.filing_rows):,}",f"{int(r.ticker_count)} companies")
-        kpi(c3,"News articles",f"{int(r.news_rows):,}","indexed")
-        kpi(c4,"Data sources","3","NewsAPI · Edgar · FRED")
-        kpi(c5,"Technologies","5","Kafka·Spark·PG·Mongo·Airflow")
+        kpi(c1,"Market data points",f"{int(r.market_rows):,}",f"{int(r.series_count)} FRED series","kpi-v kpi-v-teal")
+        kpi(c2,"SEC filings",f"{int(r.filing_rows):,}",f"{int(r.ticker_count)} companies","kpi-v kpi-v-blue")
+        kpi(c3,"News articles",f"{int(r.news_rows):,}","indexed","kpi-v kpi-v-amber")
+        kpi(c4,"Data sources","3","NewsAPI · Edgar · FRED","kpi-v kpi-v-coral")
+        kpi(c5,"Technologies","5","Kafka·Spark·PG·Mongo·Airflow","kpi-v kpi-v-teal")
 
     # Live data volume counter
     vol = q("""SELECT
@@ -295,11 +379,56 @@ if page == "Overview":
     col3,col4 = st.columns([2,3])
     with col3:
         st.markdown('<p class="sec">Live macro snapshot</p>', unsafe_allow_html=True)
-        macro=q("SELECT DISTINCT ON (series_code) series_code,series_name,value,date FROM market_data WHERE series_code IN ('DFF','CPIAUCSL','UNRATE','GS10','VIXCLS') ORDER BY series_code,date DESC")
+        # Fetch latest AND previous period for each series to compute MoM change
+        macro_latest = q("""
+            SELECT DISTINCT ON (series_code) series_code, value AS latest, date AS latest_date
+            FROM market_data
+            WHERE series_code IN ('DFF','CPIAUCSL','UNRATE','GS10','VIXCLS')
+            ORDER BY series_code, date DESC
+        """)
+        macro_prev = q("""
+            SELECT series_code, value AS prev, date AS prev_date
+            FROM (
+                SELECT series_code, value, date,
+                       ROW_NUMBER() OVER (PARTITION BY series_code ORDER BY date DESC) AS rn
+                FROM market_data
+                WHERE series_code IN ('DFF','CPIAUCSL','UNRATE','GS10','VIXCLS')
+            ) t WHERE rn = 2
+        """)
         labels={"DFF":"Fed Funds Rate","CPIAUCSL":"CPI","UNRATE":"Unemployment","GS10":"10Y Treasury","VIXCLS":"VIX"}
-        if not macro.empty:
-            for _,row in macro.iterrows():
-                st.metric(labels.get(row["series_code"],row["series_code"]), f"{row['value']:.2f}")
+        units ={"DFF":"%","CPIAUCSL":"","UNRATE":"%","GS10":"%","VIXCLS":""}
+        if not macro_latest.empty and not macro_prev.empty:
+            macro_merged = macro_latest.merge(macro_prev, on="series_code", how="left")
+            for _,row in macro_merged.iterrows():
+                code = row["series_code"]
+                label = labels.get(code, code)
+                unit  = units.get(code, "")
+                val   = row["latest"]
+                prev  = row.get("prev", None)
+                val_str = f"{val:.2f}{unit}"
+                if prev and prev != 0:
+                    chg = val - prev
+                    pct = (chg / abs(prev)) * 100
+                    arrow = "↑" if chg > 0 else "↓"
+                    chg_color = "#10B981" if chg > 0 else "#EF4444"
+                    chg_str = f"{arrow} {abs(pct):.2f}%"
+                    st.markdown(f"""
+                    <div class="macro-card">
+                      <p class="macro-label">{label}</p>
+                      <div style="display:flex;align-items:baseline;gap:10px">
+                        <p class="macro-value">{val_str}</p>
+                        <span style="color:{chg_color};font-size:13px;font-weight:600">{chg_str}</span>
+                      </div>
+                      <p style="font-size:10px;color:#94A3B8;margin:0">vs previous: {prev:.2f}{unit}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div class="macro-card">
+                      <p class="macro-label">{label}</p>
+                      <p class="macro-value">{val_str}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
 
     with col4:
         st.markdown('<p class="sec">Most recent filings</p>', unsafe_allow_html=True)
