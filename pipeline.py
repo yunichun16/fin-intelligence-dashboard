@@ -209,39 +209,78 @@ def get_cik(ticker):
         print(f"    ✗ CIK {ticker}: {e}")
     return None
 
-def get_filings(cik, form_types=["8-K","10-K"], max_filings=10):
+def get_filings(cik, form_types=["8-K","10-K","10-Q"], max_filings=100):
+    """
+    Fetch filings from SEC EDGAR. Pulls 'recent' batch first,
+    then follows pagination files[] array to get older filings too.
+    This is crucial for volume — 'recent' only has ~1000 entries.
+    """
     try:
         r = requests.get(f"https://data.sec.gov/submissions/CIK{cik}.json", headers=SEC_HEADERS, timeout=10)
-        data   = r.json()
-        company = data.get("name","Unknown")
-        recent  = data.get("filings",{}).get("recent",{})
-        forms   = recent.get("form",[])
-        dates   = recent.get("filingDate",[])
-        acc     = recent.get("accessionNumber",[])
-        docs    = recent.get("primaryDocument",[])
-        periods = recent.get("reportDate",[])
+        data    = r.json()
+        company = data.get("name", "Unknown")
         results = []
-        for i, form in enumerate(forms):
-            if form in form_types:
-                ac = acc[i].replace("-","")
-                doc_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{ac}/{docs[i]}" if i < len(docs) and docs[i] else None
-                results.append({
-                    "company_name": company, "cik": cik, "form_type": form,
-                    "filed_at": dates[i] if i < len(dates) else None,
-                    "period":   periods[i] if i < len(periods) else None,
-                    "accession_number": acc[i], "document_url": doc_url,
-                    "fetched_at": datetime.utcnow().isoformat(),
-                })
-                if len(results) >= max_filings: break
+
+        def extract_from_batch(batch):
+            forms   = batch.get("form", [])
+            dates   = batch.get("filingDate", [])
+            acc     = batch.get("accessionNumber", [])
+            docs    = batch.get("primaryDocument", [])
+            periods = batch.get("reportDate", [])
+            for i, form in enumerate(forms):
+                if form in form_types:
+                    ac = acc[i].replace("-", "")
+                    doc_url = (
+                        f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{ac}/{docs[i]}"
+                        if i < len(docs) and docs[i] else None
+                    )
+                    results.append({
+                        "company_name":     company,
+                        "cik":              cik,
+                        "form_type":        form,
+                        "filed_at":         dates[i] if i < len(dates) else None,
+                        "period":           periods[i] if i < len(periods) else None,
+                        "accession_number": acc[i],
+                        "document_url":     doc_url,
+                        "fetched_at":       datetime.utcnow().isoformat(),
+                    })
+                    if len(results) >= max_filings:
+                        return True  # stop signal
+            return False
+
+        # Pull recent filings (most recent ~1000)
+        recent = data.get("filings", {}).get("recent", {})
+        if extract_from_batch(recent):
+            return results
+
+        # Follow pagination — older filings are in separate JSON files
+        older_files = data.get("filings", {}).get("files", [])
+        for file_info in older_files:
+            if len(results) >= max_filings:
+                break
+            fname = file_info.get("name", "")
+            if not fname:
+                continue
+            try:
+                r2 = requests.get(
+                    f"https://data.sec.gov/submissions/{fname}",
+                    headers=SEC_HEADERS, timeout=10
+                )
+                if extract_from_batch(r2.json()):
+                    break
+                time.sleep(0.1)
+            except Exception:
+                pass
+
         return results
     except Exception as e:
         print(f"    ✗ Filings CIK {cik}: {e}")
         return []
 
-def fetch_filing_text(document_url: str, max_chars: int = 100000) -> str:
+def fetch_filing_text(document_url: str, max_chars: int = 500000) -> str:
     """
     Download the actual text content of an SEC filing document.
-    Caps at max_chars to avoid storing huge files (10-Ks can be 5MB+).
+    Caps at max_chars (500KB default) — 10-Ks can be 5MB+ so we take the first 500KB.
     Returns plain text stripped of HTML tags.
     """
     if not document_url:
@@ -271,7 +310,7 @@ def run_edgar_ingestion(fetch_text: bool = True):
         print(f"  {ticker}...", end=" ", flush=True)
         cik = get_cik(ticker)
         if cik:
-            filings = get_filings(cik, max_filings=50)
+            filings = get_filings(cik, form_types=["8-K","10-K","10-Q","8-K/A","10-K/A","20-F"], max_filings=200)
             for f in filings:
                 f["ticker"] = ticker
                 # Fetch full document text for volume — this is the main 1GB driver
@@ -551,7 +590,20 @@ def run_mongo_load(articles, filings):
         print(f"  ✓ News: {r.upserted_count} inserted, {r.modified_count} updated")
 
     if filings:
-        ops = [UpdateOne({"accession_number":f["accession_number"]},{"$set":f},upsert=True) for f in filings if f.get("accession_number")]
+        ops = []
+        for f in filings:
+            if not f.get("accession_number"): continue
+            # Use $setOnInsert for full_text so we don't overwrite rich text with empty on re-runs
+            doc = {k:v for k,v in f.items() if k != "full_text"}
+            op = UpdateOne(
+                {"accession_number": f["accession_number"]},
+                {
+                    "$set": doc,
+                    "$setOnInsert": {"full_text": f.get("full_text", "")},
+                },
+                upsert=True
+            )
+            ops.append(op)
         r = filings_col.bulk_write(ops, ordered=False)
         print(f"  ✓ Filings: {r.upserted_count} inserted, {r.modified_count} updated")
 
