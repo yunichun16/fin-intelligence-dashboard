@@ -64,36 +64,77 @@ SEARCH_KEYWORDS = [
     "semiconductor chip AI nvidia market",
 ]
 
-TARGET_TICKERS = [
+TARGET_TICKERS = list(dict.fromkeys([
+    # Big Tech (20)
     "AAPL","MSFT","GOOGL","AMZN","META","NVDA","TSLA","NFLX","ORCL","ADBE",
+    "CRM","INTC","AMD","QCOM","TXN","CSCO","IBM","SNOW","PLTR","NOW",
+    # Finance (20)
     "JPM","BAC","GS","MS","WFC","C","BLK","AXP","V","MA",
-    "JNJ","PFE","UNH","ABBV","MRK",
-    "XOM","CVX","COP",
-    "WMT","KO","PEP","MCD","NKE",
-    "BA","CAT","HON",
-]
+    "SCHW","USB","PNC","TFC","COF","MET","PRU","ALL","CB","MMC",
+    # Healthcare (10)
+    "JNJ","PFE","UNH","ABBV","MRK","TMO","ABT","LLY","BMY","GILD",
+    # Energy (10)
+    "XOM","CVX","COP","SLB","EOG","PSX","VLO","MPC","OXY","HAL",
+    # Consumer (10)
+    "WMT","KO","PEP","MCD","NKE","SBUX","TGT","COST","HD","LOW",
+    # Industrial (10)
+    "BA","CAT","HON","GE","MMM","UPS","FDX","LMT","RTX","DE",
+    # Telecom & Media (5)
+    "T","VZ","CMCSA","DIS","CHTR",
+    # Real Estate & Utilities (5)
+    "AMT","PLD","NEE","DUK","SO",
+]))  # dict.fromkeys deduplicates while preserving order
 
 FRED_SERIES = {
+    # Market & rates (daily — high volume)
     "SP500":        "S&P 500 index (daily)",
+    "NASDAQCOM":    "NASDAQ Composite (daily)",
+    "DJIA":         "Dow Jones Industrial Average (daily)",
     "DFF":          "Federal funds rate (daily)",
-    "GS10":         "10-Year Treasury yield (daily)",
+    "DGS10":        "10-Year Treasury yield (daily)",
+    "DGS2":         "2-Year Treasury yield (daily)",
+    "DGS30":        "30-Year Treasury yield (daily)",
+    "T10Y2Y":       "10Y-2Y Treasury spread (daily)",
     "VIXCLS":       "CBOE VIX volatility index (daily)",
+    "DEXUSEU":      "USD/EUR exchange rate (daily)",
+    "DEXUSUK":      "USD/GBP exchange rate (daily)",
+    "DEXJPUS":      "JPY/USD exchange rate (daily)",
+    "DCOILWTICO":   "WTI crude oil spot (daily)",
+    "DCOILBRENTEU": "Brent crude oil spot (daily)",
+    "GOLDAMGBD228NLBM": "Gold price (daily)",
+    # Macro (monthly/quarterly)
     "CPIAUCSL":     "Consumer Price Index (monthly)",
+    "CPILFESL":     "Core CPI ex food & energy (monthly)",
+    "PCEPI":        "PCE Price Index (monthly)",
     "UNRATE":       "Unemployment rate (monthly)",
+    "PAYEMS":       "Nonfarm payrolls (monthly)",
+    "ICSA":         "Initial jobless claims (weekly)",
     "GDP":          "US GDP (quarterly)",
     "GDPC1":        "Real GDP (quarterly)",
+    "GDPPOT":       "Potential GDP (quarterly)",
     "WTISPLC":      "WTI crude oil price (monthly)",
     "M2SL":         "M2 money supply (monthly)",
+    "M1SL":         "M1 money supply (monthly)",
     "MORTGAGE30US": "30-Year mortgage rate (weekly)",
+    "MORTGAGE15US": "15-Year mortgage rate (weekly)",
     "UMCSENT":      "Consumer sentiment (monthly)",
+    "RSXFS":        "Retail sales ex food (monthly)",
+    "INDPRO":       "Industrial production (monthly)",
+    "HOUST":        "Housing starts (monthly)",
+    "HSN1F":        "New home sales (monthly)",
+    "TOTALSL":      "Total consumer credit (monthly)",
+    "BUSLOANS":     "Commercial & industrial loans (monthly)",
+    "FEDFUNDS":     "Effective federal funds rate (monthly)",
+    "BAA10Y":       "BAA corporate bond spread (daily)",
+    "T10YIE":       "10-Year breakeven inflation (daily)",
 }
 
-FRED_START = "2010-01-01"
+FRED_START = "2000-01-01"   # push back to 2000 for more volume
 
 # Alpaca config
 ALPACA_BASE     = "https://data.alpaca.markets/v2"
-ALPACA_LOOKBACK = 365   # days of daily bars to fetch per run
-NEWS_LOOKBACK_DAYS = 7  # fetch last 7 days of news each run
+ALPACA_LOOKBACK = 365 * 15  # 15 years of daily bars — major volume driver
+NEWS_LOOKBACK_DAYS = 30  # fetch last 30 days of news each run
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -197,17 +238,53 @@ def get_filings(cik, form_types=["8-K","10-K"], max_filings=10):
         print(f"    ✗ Filings CIK {cik}: {e}")
         return []
 
-def run_edgar_ingestion():
+def fetch_filing_text(document_url: str, max_chars: int = 100000) -> str:
+    """
+    Download the actual text content of an SEC filing document.
+    Caps at max_chars to avoid storing huge files (10-Ks can be 5MB+).
+    Returns plain text stripped of HTML tags.
+    """
+    if not document_url:
+        return ""
+    try:
+        r = requests.get(document_url, headers=SEC_HEADERS, timeout=15)
+        r.raise_for_status()
+        text = r.text
+        # Strip HTML tags simply
+        import re
+        text = re.sub(r'<[^>]+>', ' ', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text[:max_chars]
+    except Exception:
+        return ""
+
+
+def run_edgar_ingestion(fetch_text: bool = True):
     print("\n── Section 2: SEC Edgar ────────────────────────────")
+
+    # Deduplicate tickers
+    seen = set()
+    unique_tickers = [t for t in TARGET_TICKERS if t not in seen and not seen.add(t)]
+
     all_filings = []
-    for ticker in TARGET_TICKERS:
+    for ticker in unique_tickers:
         print(f"  {ticker}...", end=" ", flush=True)
         cik = get_cik(ticker)
         if cik:
-            filings = get_filings(cik, max_filings=10)
-            for f in filings: f["ticker"] = ticker
+            filings = get_filings(cik, max_filings=50)
+            for f in filings:
+                f["ticker"] = ticker
+                # Fetch full document text for volume — this is the main 1GB driver
+                if fetch_text and f.get("document_url"):
+                    f["full_text"] = fetch_filing_text(f["document_url"])
+                    f["text_chars"] = len(f.get("full_text", ""))
+                    time.sleep(0.1)  # Be polite to SEC servers
+                else:
+                    f["full_text"] = ""
+                    f["text_chars"] = 0
             all_filings.extend(filings)
-            print(f"✓ {len(filings)}")
+            total_chars = sum(f.get("text_chars", 0) for f in all_filings)
+            print(f"✓ {len(filings)} filings | {total_chars/1024/1024:.1f} MB text so far")
         else:
             print("✗ CIK not found")
         time.sleep(0.15)
