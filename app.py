@@ -458,29 +458,79 @@ if page == "Overview":
         (SELECT COUNT(*) FROM market_data)    AS m,
         (SELECT COUNT(*) FROM sec_filings)    AS f,
         (SELECT COUNT(*) FROM news_sentiment) AS n,
-        (SELECT pg_size_pretty(pg_total_relation_size('market_data') +
-                               pg_total_relation_size('sec_filings') +
-                               pg_total_relation_size('news_sentiment'))) AS db_size
+        (SELECT COUNT(*) FROM stock_prices)   AS sp,
+        (SELECT pg_size_pretty(
+            pg_total_relation_size('market_data') +
+            pg_total_relation_size('sec_filings') +
+            pg_total_relation_size('news_sentiment') +
+            pg_total_relation_size('stock_prices')
+        )) AS pg_size,
+        (SELECT pg_database_size(current_database())) AS pg_bytes
     """)
+
+    # Get MongoDB size estimate separately
+    mongo_size_mb = 0
+    try:
+        mc = mongo()
+        if mc:
+            db_stats = mc["fin_intelligence"].command("dbStats", scale=1024*1024)
+            mongo_size_mb = round(db_stats.get("dataSize", 0) + db_stats.get("indexSize", 0), 1)
+            mc.close()
+    except Exception:
+        pass
+
     if not vol.empty:
         r = vol.iloc[0]
-        total = int(r["m"]) + int(r["f"]) + int(r["n"])
+        pg_mb    = round(int(r["pg_bytes"]) / 1024 / 1024, 1)
+        total_mb = round(pg_mb + mongo_size_mb, 1)
+        total_gb = round(total_mb / 1024, 2)
+        total_pg_rows = int(r["m"]) + int(r["f"]) + int(r["n"]) + int(r["sp"])
+
+        size_label = f"{total_gb} GB" if total_gb >= 0.1 else f"{total_mb} MB"
+        pct_of_1gb = min(100, round(total_mb / 1024 * 100, 1))
+
         st.markdown(f"""
         <div style="background:linear-gradient(90deg,#080E1D,#162040);border-radius:12px;
-                    padding:14px 24px;margin:12px 0;display:flex;align-items:center;gap:32px;
-                    border:1px solid #1E3A5F;color:white;">
-          <div>
-            <p style="font-size:9px;letter-spacing:.12em;opacity:.5;margin:0">TOTAL RECORDS IN DATABASE</p>
-            <p style="font-family:Syne,sans-serif;font-size:28px;font-weight:700;margin:2px 0;letter-spacing:-.02em">
-              {total:,} <span style="font-size:14px;opacity:.5;font-weight:400">records</span>
-            </p>
+                    padding:16px 24px;margin:12px 0;border:1px solid #1E3A5F;color:white;">
+          <div style="display:flex;align-items:center;gap:32px;flex-wrap:wrap">
+            <div>
+              <p style="font-size:9px;letter-spacing:.12em;opacity:.5;margin:0">TOTAL RECORDS (PostgreSQL)</p>
+              <p style="font-family:Syne,sans-serif;font-size:28px;font-weight:700;margin:2px 0;
+                        letter-spacing:-.02em;color:#3BFFA0">
+                {total_pg_rows:,} <span style="font-size:13px;opacity:.5;font-weight:400">rows</span>
+              </p>
+            </div>
+            <div style="width:1px;height:44px;background:rgba(255,255,255,.08)"></div>
+            <div><p style="font-size:9px;opacity:.5;margin:0">MARKET DATA</p><p style="font-size:16px;font-weight:600;margin:0;color:#5BA4FF">{int(r["m"]):,}</p></div>
+            <div><p style="font-size:9px;opacity:.5;margin:0">SEC FILINGS</p><p style="font-size:16px;font-weight:600;margin:0;color:#5BA4FF">{int(r["f"]):,}</p></div>
+            <div><p style="font-size:9px;opacity:.5;margin:0">STOCK PRICES</p><p style="font-size:16px;font-weight:600;margin:0;color:#5BA4FF">{int(r["sp"]):,}</p></div>
+            <div><p style="font-size:9px;opacity:.5;margin:0">NEWS ARTICLES</p><p style="font-size:16px;font-weight:600;margin:0;color:#5BA4FF">{int(r["n"]):,}</p></div>
+            <div style="width:1px;height:44px;background:rgba(255,255,255,.08)"></div>
+            <div>
+              <p style="font-size:9px;opacity:.5;margin:0">POSTGRESQL SIZE</p>
+              <p style="font-size:16px;font-weight:600;margin:0;color:#FFD166">{r["pg_size"]}</p>
+            </div>
+            <div>
+              <p style="font-size:9px;opacity:.5;margin:0">MONGODB SIZE</p>
+              <p style="font-size:16px;font-weight:600;margin:0;color:#FF6B6B">{mongo_size_mb} MB</p>
+            </div>
+            <div style="width:1px;height:44px;background:rgba(255,255,255,.08)"></div>
+            <div>
+              <p style="font-size:9px;opacity:.5;margin:0">COMBINED STORAGE</p>
+              <p style="font-family:Syne,sans-serif;font-size:20px;font-weight:700;margin:2px 0;
+                        color:#FFD166">{size_label}</p>
+              <p style="font-size:9px;opacity:.45;margin:0">{pct_of_1gb}% of 1 GB target</p>
+            </div>
           </div>
-          <div style="width:1px;height:40px;background:rgba(255,255,255,.1)"></div>
-          <div><p style="font-size:9px;opacity:.5;margin:0">MARKET DATA</p><p style="font-size:18px;font-weight:600;margin:0">{int(r["m"]):,}</p></div>
-          <div><p style="font-size:9px;opacity:.5;margin:0">SEC FILINGS</p><p style="font-size:18px;font-weight:600;margin:0">{int(r["f"]):,}</p></div>
-          <div><p style="font-size:9px;opacity:.5;margin:0">NEWS ARTICLES</p><p style="font-size:18px;font-weight:600;margin:0">{int(r["n"]):,}</p></div>
-          <div style="width:1px;height:40px;background:rgba(255,255,255,.1)"></div>
-          <div><p style="font-size:9px;opacity:.5;margin:0">DB SIZE</p><p style="font-size:18px;font-weight:600;margin:0">{r["db_size"]}</p></div>
+          <!-- Progress bar toward 1GB -->
+          <div style="margin-top:10px;background:rgba(255,255,255,.06);border-radius:4px;height:4px">
+            <div style="background:linear-gradient(90deg,#3BFFA0,#3A86FF);
+                        width:{pct_of_1gb}%;height:4px;border-radius:4px;
+                        transition:width .3s"></div>
+          </div>
+          <p style="font-size:8px;opacity:.35;margin:4px 0 0;text-align:right">
+            {size_label} of 1 GB target · PostgreSQL {r["pg_size"]} · MongoDB {mongo_size_mb} MB
+          </p>
         </div>
         """, unsafe_allow_html=True)
 
