@@ -1,16 +1,18 @@
-name: Daily ETL Pipeline
+name: Daily ETL Pipeline (Fast)
 
 on:
   schedule:
-    # Runs every day at 6:00 AM UTC (after US market open)
+    # Runs 3x daily — 6 AM, 12 PM, 6 PM UTC
+    # Uses 60 of 100 NewsAPI daily requests (20 keywords x 3 runs)
     - cron: '0 6 * * *'
+    - cron: '0 12 * * *'
+    - cron: '0 18 * * *'
   workflow_dispatch:
-    # Also allows manual trigger from GitHub Actions UI anytime
 
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repo
@@ -22,10 +24,9 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install requests pandas psycopg2-binary pymongo python-dotenv
+        run: pip install requests pandas psycopg2-binary pymongo python-dotenv
 
-      - name: Run ETL pipeline
+      - name: Run fast ETL (metadata only, no text fetching)
         env:
           NEWS_API_KEY:       ${{ secrets.NEWS_API_KEY }}
           FRED_API_KEY:       ${{ secrets.FRED_API_KEY }}
@@ -37,13 +38,14 @@ jobs:
           MONGO_URI:          ${{ secrets.MONGO_URI }}
           ALPACA_API_KEY:     ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY:  ${{ secrets.ALPACA_SECRET_KEY }}
+          FETCH_FILING_TEXT:  "false"
         run: python pipeline.py
 
-      - name: Upload run log
+      - name: Upload log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pipeline-log-${{ github.run_id }}
+          name: daily-log-${{ github.run_id }}
           path: pipeline_log.txt
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
