@@ -680,6 +680,16 @@ def run_mongo_load(articles, filings):
 
     # ── SEC filing documents ──────────────────────────────────────────────────
     if filings:
+        # FORCE_REINDEX=true clears existing full_text so they get re-fetched at 500KB
+        # Use this when upgrading from a lower max_chars setting
+        force_reindex = os.getenv("FORCE_REINDEX", "false").lower() == "true"
+        if force_reindex:
+            print("  ⚠ FORCE_REINDEX=true — clearing existing full_text for re-fetch")
+            filings_col.update_many(
+                {"full_text": {"$exists": True, "$not": {"$gt": ""}}},
+                {"$set": {"full_text": ""}}
+            )
+
         # Write in small batches so a quota error doesn't lose all progress
         BATCH_SIZE = 50
         total_inserted = total_updated = total_skipped = 0
@@ -689,13 +699,19 @@ def run_mongo_load(articles, filings):
             ops   = []
             for f in batch:
                 if not f.get("accession_number"): continue
+                full_text = f.get("full_text", "")
                 doc = {k:v for k,v in f.items() if k != "full_text"}
+
+                if full_text:
+                    # We fetched real text — always write it (upgrades old 50KB docs to 500KB)
+                    update_op = {"$set": {**doc, "full_text": full_text}}
+                else:
+                    # No text this run (fast/metadata mode) — preserve existing text
+                    update_op = {"$set": doc, "$setOnInsert": {"full_text": ""}}
+
                 ops.append(UpdateOne(
                     {"accession_number": f["accession_number"]},
-                    {
-                        "$set": doc,
-                        "$setOnInsert": {"full_text": f.get("full_text", "")},
-                    },
+                    update_op,
                     upsert=True
                 ))
             if not ops: continue
