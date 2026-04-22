@@ -291,7 +291,7 @@ def get_filings(cik, form_types=["8-K","10-K","10-Q"], max_filings=100):
         print(f"    ✗ Filings CIK {cik}: {e}")
         return []
 
-def fetch_filing_text(document_url: str, max_chars: int = 500000) -> str:
+def fetch_filing_text(document_url: str, max_chars: int = 50000) -> str:
     """
     Download the actual text content of an SEC filing document.
     Caps at max_chars (500KB default) — 10-Ks can be 5MB+ so we take the first 500KB.
@@ -609,41 +609,80 @@ def run_pg_load(articles, filings, market, stock_bars):
 # ══════════════════════════════════════════════════════════════════════════════
 def run_mongo_load(articles, filings):
     from pymongo import MongoClient, UpdateOne
+    from pymongo.errors import OperationFailure, BulkWriteError
     print("\n── Section 6: MongoDB (Atlas) ──────────────────────")
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-    client.admin.command("ping")
-    print("  ✓ Connected to Atlas")
-    db = client["fin_intelligence"]
+    try:
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        client.admin.command("ping")
+        print("  ✓ Connected to Atlas")
+    except Exception as e:
+        print(f"  ✗ MongoDB connection failed: {e}")
+        print("  ⚠ Skipping MongoDB load — data saved to PostgreSQL only")
+        return
+
+    db          = client["fin_intelligence"]
     news_col    = db["news_articles"]
     filings_col = db["sec_filing_documents"]
     news_col.create_index("url", unique=True)
     filings_col.create_index("accession_number", unique=True)
 
+    # ── News articles ─────────────────────────────────────────────────────────
     if articles:
-        ops = [UpdateOne({"url":a["url"]},{"$set":a},upsert=True) for a in articles if a.get("url")]
-        r = news_col.bulk_write(ops, ordered=False)
-        print(f"  ✓ News: {r.upserted_count} inserted, {r.modified_count} updated")
+        try:
+            ops = [UpdateOne({"url":a["url"]},{"$set":a},upsert=True)
+                   for a in articles if a.get("url")]
+            r = news_col.bulk_write(ops, ordered=False)
+            print(f"  ✓ News: {r.upserted_count} inserted, {r.modified_count} updated")
+        except (OperationFailure, BulkWriteError) as e:
+            err = str(e)
+            if "space quota" in err or "8000" in err:
+                print("  ✗ MongoDB quota exceeded — upgrade Atlas M0 → M10 for more storage")
+                print("  ℹ Filing metadata already saved to PostgreSQL successfully")
+            else:
+                print(f"  ✗ News write error: {e}")
 
+    # ── SEC filing documents ──────────────────────────────────────────────────
     if filings:
-        ops = []
-        for f in filings:
-            if not f.get("accession_number"): continue
-            # Use $setOnInsert for full_text so we don't overwrite rich text with empty on re-runs
-            doc = {k:v for k,v in f.items() if k != "full_text"}
-            op = UpdateOne(
-                {"accession_number": f["accession_number"]},
-                {
-                    "$set": doc,
-                    "$setOnInsert": {"full_text": f.get("full_text", "")},
-                },
-                upsert=True
-            )
-            ops.append(op)
-        r = filings_col.bulk_write(ops, ordered=False)
-        print(f"  ✓ Filings: {r.upserted_count} inserted, {r.modified_count} updated")
+        # Write in small batches so a quota error doesn't lose all progress
+        BATCH_SIZE = 50
+        total_inserted = total_updated = total_skipped = 0
+
+        for i in range(0, len(filings), BATCH_SIZE):
+            batch = filings[i:i+BATCH_SIZE]
+            ops   = []
+            for f in batch:
+                if not f.get("accession_number"): continue
+                doc = {k:v for k,v in f.items() if k != "full_text"}
+                ops.append(UpdateOne(
+                    {"accession_number": f["accession_number"]},
+                    {
+                        "$set": doc,
+                        "$setOnInsert": {"full_text": f.get("full_text", "")},
+                    },
+                    upsert=True
+                ))
+            if not ops: continue
+            try:
+                r = filings_col.bulk_write(ops, ordered=False)
+                total_inserted += r.upserted_count
+                total_updated  += r.modified_count
+            except (OperationFailure, BulkWriteError) as e:
+                err = str(e)
+                if "space quota" in err or "8000" in err:
+                    total_skipped += len(ops)
+                    print(f"  ✗ Quota exceeded at batch {i//BATCH_SIZE} — "
+                          f"{total_inserted} inserted before limit hit")
+                    print("  ℹ Upgrade Atlas M0 → M10 ($57/mo) for 10 GB storage")
+                    print("  ℹ All metadata is safe in PostgreSQL (no size limit issue there)")
+                    break
+                else:
+                    print(f"  ✗ Batch {i//BATCH_SIZE} error: {e}")
+
+        print(f"  ✓ Filings: {total_inserted} inserted, {total_updated} updated"
+              + (f", {total_skipped} skipped (quota)" if total_skipped else ""))
 
     client.close()
-    print("  ✓ MongoDB load complete")
+    print("  ✓ MongoDB section complete")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
