@@ -5,6 +5,8 @@
 
 A real-time ETL pipeline that ingests financial news, SEC public filings, macroeconomic indicators, and live stock prices from four free APIs — transforms and joins them using distributed computing — and serves a unified analytical dashboard.
 
+**Current scale:** 220,947 rows · 1.21 GB combined (48 MB PostgreSQL + 1,180 MB MongoDB) · 89 companies · 4 sources
+
 **Live dashboard → [fin-intelligence-dashboard.streamlit.app](https://fin-intelligence-dashboard.streamlit.app)**
 
 ---
@@ -77,10 +79,10 @@ fin-intelligence-dashboard/
 
 | Source | What we pull | Volume | Frequency |
 |---|---|---|---|
-| **NewsAPI** | Financial headlines from 150,000+ sources | ~2,000 articles/run | Every 15 min (free: daily) |
-| **SEC Edgar** | 8-K & 10-K filings, 38 companies | ~380 filings | On filing (near real-time) |
-| **FRED** | 12 macroeconomic series back to 2010 | ~15,000+ data points | Daily / Monthly / Quarterly |
-| **Alpaca Markets** | Daily OHLCV bars, 38 tickers, IEX feed | ~13,000+ rows | Daily |
+| **NewsAPI** | Financial headlines from 150,000+ sources | 1,572 articles indexed | Every 15 min (free: daily) |
+| **SEC Edgar** | 8-K & 10-K filings, 89 companies | 17,204 filings | On filing (near real-time) |
+| **FRED** | 39 macroeconomic series back to 2010 | 109,344 data points | Daily / Monthly / Quarterly |
+| **Alpaca Markets** | Daily OHLCV bars, 89 tickers, IEX feed | 92,827 rows | Daily |
 
 ---
 
@@ -200,7 +202,7 @@ sec_filing_documents   { ticker, company_name, form_type, filed_at, accession_nu
 | News keywords | 20 | Up to 100 (free tier limit) |
 | History depth | 2010–present | FRED macro back to 1947 |
 | Update frequency | Daily | 3× daily — stays within free tier limits |
-| DB size (estimate) | ~50–100 MB now | ~2 GB/year at current rate |
+| DB size (estimate) | 1.21 GB actual (48 MB PG + 1,180 MB Mongo) | ~2 GB/year at current rate |
 | Kafka brokers | 1 (demo) | Scale horizontally — add brokers linearly |
 | Spark workers | 1 node (demo) | Add worker nodes — same code, no changes |
 
