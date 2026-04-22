@@ -40,6 +40,11 @@ MONGO_URI = os.environ["MONGO_URI"]
 ALPACA_KEY    = os.environ.get("ALPACA_API_KEY", "")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET_KEY", "")
 
+# ── Batch support for parallel GitHub Actions matrix jobs ────────────────────
+# When TICKER_BATCH_INDEX is set, only process that slice of tickers.
+_TICKER_BATCH_INDEX = int(os.getenv("TICKER_BATCH_INDEX", "-1"))
+_TICKER_BATCH_SIZE  = int(os.getenv("TICKER_BATCH_SIZE",  "10"))
+
 # ── Apply ticker batch slicing if running in parallel CI mode ────────────────
 if _TICKER_BATCH_INDEX >= 0:
     start = _TICKER_BATCH_INDEX * _TICKER_BATCH_SIZE
@@ -70,13 +75,6 @@ SEARCH_KEYWORDS = [
     "healthcare pharma FDA approval",
     "semiconductor chip AI nvidia market",
 ]
-
-# ── Batch support for parallel GitHub Actions matrix jobs ────────────────────
-# When TICKER_BATCH_INDEX is set, only process that slice of tickers.
-# e.g. TICKER_BATCH_INDEX=0, TICKER_BATCH_SIZE=10 → first 10 tickers
-# This lets 9 parallel jobs each handle ~10 tickers simultaneously.
-_TICKER_BATCH_INDEX = int(os.getenv("TICKER_BATCH_INDEX", "-1"))
-_TICKER_BATCH_SIZE  = int(os.getenv("TICKER_BATCH_SIZE",  "10"))
 
 TARGET_TICKERS = list(dict.fromkeys([
     # Big Tech (20)
