@@ -163,6 +163,9 @@ def fetch_news(query, from_date=None, page_size=100):
     }
     try:
         r = requests.get("https://newsapi.org/v2/everything", params=params, timeout=10)
+        if r.status_code == 429:
+            print(f"  ⚠ NewsAPI 429 — daily 100 req/day cap reached. Skipping.")
+            return []
         r.raise_for_status()
         return [
             {
@@ -185,11 +188,22 @@ def fetch_news(query, from_date=None, page_size=100):
 def run_news_ingestion():
     print("\n── Section 1: NewsAPI ──────────────────────────────")
     all_articles = []
+    rate_limited = False
     for kw in SEARCH_KEYWORDS:
+        if rate_limited:
+            break
         print(f"  Fetching: {kw[:50]}...")
-        all_articles.extend(fetch_news(kw, page_size=100))
-        time.sleep(1)
-    df = pd.DataFrame(all_articles).drop_duplicates(subset=["url"]).dropna(subset=["title","url"])
+        results = fetch_news(kw, page_size=100)
+        if not results and not rate_limited:
+            # Check if we got nothing due to rate limit vs just no results
+            pass
+        all_articles.extend(results)
+        time.sleep(1.5)  # slightly longer sleep to stay under rate limit
+    df = pd.DataFrame(all_articles).drop_duplicates(subset=["url"]).dropna(subset=["title","url"]) if all_articles else pd.DataFrame()
+    if df.empty:
+        print("  ⚠ No articles fetched — NewsAPI may be rate limited (100 req/day cap)")
+        print("  ℹ Try again tomorrow or reduce SEARCH_KEYWORDS count")
+        return []
 
     # Simple keyword sentiment
     POS = {"surge","soar","beat","record","growth","profit","strong","gain","rise","rally","exceed","boost","expand"}
