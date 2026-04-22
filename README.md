@@ -193,32 +193,42 @@ sec_filing_documents   { ticker, company_name, form_type, filed_at, accession_nu
 
 ---
 
-## Scalability
+## Scalability — Path to Enterprise
 
-| Dimension | Demo | Production path |
+The demo runs entirely on free tiers. The architecture is intentionally layered so each component maps directly to a cloud-managed AWS equivalent — no code rewrites, only infrastructure and config changes. The table below shows how this system scales to firm-wide production serving thousands of analysts.
+
+| Dimension | Demo (now) | Enterprise (AWS) |
 |---|---|---|
-| Tickers | 38 | Add to `TARGET_TICKERS` list in `pipeline.py` |
-| FRED series | 12 | Add to `FRED_SERIES` dict |
-| News keywords | 20 | Up to 100 (free tier limit) |
-| History depth | 2010–present | FRED macro back to 1947 |
-| Update frequency | Daily | 3× daily — stays within free tier limits |
-| DB size (estimate) | 1.21 GB actual (48 MB PG + 1,180 MB Mongo) | ~2 GB/year at current rate |
-| Kafka brokers | 1 (demo) | Scale horizontally — add brokers linearly |
-| Spark workers | 1 node (demo) | Add worker nodes — same code, no changes |
+| **Coverage** | 89 tickers, 4 sources | 10,000+ equities, options chains, FX, crypto, commodities, 50+ alt-data feeds |
+| **Data volume** | 220,947 rows · 1.21 GB | Billions of rows · multi-TB/day ingest · petabyte data lake on S3 |
+| **Update latency** | Daily batch (GitHub Actions) | Sub-second — tick-by-tick via AWS MSK (managed Kafka) + Kinesis |
+| **Streaming** | 1 Kafka broker (Docker) | AWS MSK — managed multi-AZ Kafka; auto-scaling broker count |
+| **Processing** | PySpark local / Colab | AWS EMR (managed Spark) + Glue serverless ETL; hundreds of worker nodes on demand |
+| **Orchestration** | GitHub Actions cron | Amazon MWAA (managed Airflow) — enterprise DAGs, SLA monitoring, alerting |
+| **Structured store** | PostgreSQL 48 MB (Supabase free) | Amazon Redshift — columnar MPP warehouse; petabyte-scale; 1,000s of concurrent analysts |
+| **Document store** | MongoDB M0 1.18 GB (Atlas free) | MongoDB Atlas Dedicated / Amazon DocumentDB — VPC peering, 99.99% SLA |
+| **Data lake** | — | AWS S3 + Lake Formation — raw/curated/aggregated zones; Parquet/Delta Lake; Athena for ad-hoc SQL |
+| **Concurrency** | 1 user | Thousands of concurrent users behind AWS ALB with auto-scaling EC2 |
+| **Security** | Public URL | VPC isolation · IAM roles · KMS encryption · PrivateLink · SOC 2 / FINRA-ready audit logs |
+| **Compliance** | None | SEC Rule 17a-4 WORM storage · data lineage via Glue Data Catalog · full audit trail |
+| **Disaster recovery** | None | Multi-region active-active · RTO < 1 hr · RPO < 5 min · automated snapshots |
+| **ML / Analytics** | Dashboard charts | SageMaker for signal modeling · Bedrock for LLM filings analysis · QuickSight for BI |
 
 ### Cost estimate
 
-| Component | Demo | Production |
-|---|---|---|
-| Kafka | $0 | $50–150/mo |
-| PySpark | $0 | $200–500/mo |
-| PostgreSQL | $0 (Supabase free) | $15–50/mo |
-| MongoDB | $0 (Atlas M0) | $57–200/mo |
-| Airflow | $0 | $100–200/mo |
-| Alpaca data | $0 (stays free) | $0 |
-| GitHub Actions | $0 | $0 |
-| Streamlit Cloud | $0 | $0 |
-| **Total** | **$0** | **$422–1,100/mo** |
+| Component | Demo | Mid-size firm (~50 analysts) | Enterprise (firm-wide) |
+|---|---|---|---|
+| **Streaming** (MSK / Kinesis) | $0 | $800–2,000/mo | $5,000–15,000/mo |
+| **Processing** (EMR / Glue) | $0 | $2,000–5,000/mo | $20,000–80,000/mo |
+| **Data Warehouse** (Redshift) | $0 | $1,000–3,000/mo | $10,000–50,000/mo |
+| **Document DB** (Atlas Dedicated) | $0 | $500–1,500/mo | $3,000–10,000/mo |
+| **Data Lake** (S3 + Glue Catalog) | $0 | $200–800/mo | $2,000–10,000/mo |
+| **Orchestration** (MWAA) | $0 | $400–800/mo | $1,500–4,000/mo |
+| **Compute** (EC2 + ALB) | $0 | $500–2,000/mo | $5,000–20,000/mo |
+| **ML / BI** (SageMaker + QuickSight) | $0 | $500–1,500/mo | $5,000–25,000/mo |
+| **Market data feeds** | $0 (free APIs) | $2,000–10,000/mo | $50,000–200,000/mo |
+| **Support + ops** | $0 | $1,000–3,000/mo | $10,000–30,000/mo |
+| **Total** | **$0** | **~$9K–30K/mo** | **~$110K–440K/mo** |
 
 ---
 
