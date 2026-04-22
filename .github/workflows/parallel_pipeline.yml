@@ -1,0 +1,83 @@
+name: Parallel Full-Text Pipeline
+
+on:
+  schedule:
+    # Every Sunday at 2 AM UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+
+jobs:
+
+  # ── Job 1: Shared data (news + FRED) — runs once ──────────────────────────
+  shared-data:
+    name: "Shared — News + FRED"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install requests pandas psycopg2-binary pymongo python-dotenv -q
+      - name: Fetch news + FRED only
+        env:
+          NEWS_API_KEY:       ${{ secrets.NEWS_API_KEY }}
+          FRED_API_KEY:       ${{ secrets.FRED_API_KEY }}
+          SUPABASE_HOST:      ${{ secrets.SUPABASE_HOST }}
+          SUPABASE_PORT:      ${{ secrets.SUPABASE_PORT }}
+          SUPABASE_DB:        ${{ secrets.SUPABASE_DB }}
+          SUPABASE_USER:      ${{ secrets.SUPABASE_USER }}
+          SUPABASE_PASSWORD:  ${{ secrets.SUPABASE_PASSWORD }}
+          MONGO_URI:          ${{ secrets.MONGO_URI }}
+          ALPACA_API_KEY:     ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY:  ${{ secrets.ALPACA_SECRET_KEY }}
+          FETCH_FILING_TEXT:  "false"
+          SKIP_ALPACA:        "true"
+          # TICKER_BATCH_INDEX not set → processes all tickers but skips SEC via batch 0 trick
+          TICKER_BATCH_INDEX: "0"
+          TICKER_BATCH_SIZE:  "0"   # size 0 = no tickers = skip SEC + Alpaca
+        run: python pipeline.py
+
+  # ── Job 2: 9 parallel ticker batches — SEC filings + Alpaca ───────────────
+  ticker-batch:
+    name: "Batch ${{ matrix.batch }} — SEC + Alpaca"
+    runs-on: ubuntu-latest
+    timeout-minutes: 340   # up to 5h 40min each — independent, parallel
+    needs: shared-data      # wait for news/FRED to finish first
+    strategy:
+      fail-fast: false      # if one batch fails, others keep running
+      matrix:
+        batch: [0, 1, 2, 3, 4, 5, 6, 7, 8]   # 9 batches × 10 tickers = 90 tickers
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install requests pandas psycopg2-binary pymongo python-dotenv -q
+
+      - name: "Fetch SEC filings + Alpaca for batch ${{ matrix.batch }}"
+        env:
+          NEWS_API_KEY:       ${{ secrets.NEWS_API_KEY }}
+          FRED_API_KEY:       ${{ secrets.FRED_API_KEY }}
+          SUPABASE_HOST:      ${{ secrets.SUPABASE_HOST }}
+          SUPABASE_PORT:      ${{ secrets.SUPABASE_PORT }}
+          SUPABASE_DB:        ${{ secrets.SUPABASE_DB }}
+          SUPABASE_USER:      ${{ secrets.SUPABASE_USER }}
+          SUPABASE_PASSWORD:  ${{ secrets.SUPABASE_PASSWORD }}
+          MONGO_URI:          ${{ secrets.MONGO_URI }}
+          ALPACA_API_KEY:     ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY:  ${{ secrets.ALPACA_SECRET_KEY }}
+          FETCH_FILING_TEXT:  "true"
+          SKIP_NEWS:          "true"   # already done by shared-data job
+          SKIP_FRED:          "true"   # already done by shared-data job
+          TICKER_BATCH_INDEX: ${{ matrix.batch }}
+          TICKER_BATCH_SIZE:  "10"
+        run: python pipeline.py
+
+      - name: Upload batch log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: batch-${{ matrix.batch }}-log-${{ github.run_id }}
+          path: pipeline_log.txt
+          if-no-files-found: ignore
+          retention-days: 7
