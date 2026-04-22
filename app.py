@@ -1376,30 +1376,45 @@ elif page == "About":
 | **Streamlit Cloud** | Web dashboard hosting | Streamlit free |""")
 
     with c2:
-        st.markdown("### Scalability Assessment")
-        st.markdown("""| Dimension | Current (demo) | Production path |
+        st.markdown("### Scalability — Path to Enterprise")
+        st.markdown("""
+> Current build is a **proof-of-concept** on free tiers. The architecture is designed so
+> each layer can be swapped for a cloud-managed equivalent with **no code rewrites** —
+> only config and infrastructure changes. Below maps the demo stack to a firm-wide
+> deployment serving thousands of analysts across asset classes.
+""")
+        st.markdown("""| Dimension | Demo (now) | Enterprise (AWS) |
 |---|---|---|
-| **Tickers** | 38 | Add rows to config list |
-| **FRED series** | 12 | Add keys to FRED_SERIES dict |
-| **News keywords** | 20 | Up to 100 (free tier limit) |
-| **History depth** | 2010–present | Back to 1947 for macro |
-| **Update frequency** | Daily (GitHub Actions) | 3× daily within free limits |
-| **DB size (est.)** | 1.21 GB actual (48 MB PG + 1,180 MB Mongo) | ~2 GB/year at current rate |
-| **Kafka brokers** | 1 (demo) | Add brokers linearly |
-| **Spark workers** | 1 node (demo) | Add workers, same code |""")
+| **Coverage** | 89 tickers, 4 sources | Full market: 10,000+ equities, options chains, FX, crypto, commodities, 50+ alt-data feeds |
+| **Data volume** | 220,947 rows · 1.21 GB | Billions of rows · multi-TB/day ingest · petabyte data lake on S3 |
+| **Update latency** | Daily batch (GitHub Actions) | Sub-second streaming — tick-by-tick via AWS MSK (managed Kafka) + Kinesis |
+| **Streaming layer** | 1 Kafka broker (Docker) | AWS MSK — managed, multi-AZ Kafka clusters; auto-scaling broker count with load |
+| **Processing** | PySpark local / Colab | AWS EMR (managed Spark) + AWS Glue for serverless ETL; hundreds of worker nodes on demand |
+| **Orchestration** | GitHub Actions cron | Amazon MWAA (managed Airflow) — enterprise DAGs, SLA monitoring, alerting, retry logic |
+| **Structured store** | PostgreSQL 48 MB (Supabase free) | Amazon Redshift — columnar MPP data warehouse; petabyte-scale; concurrent queries for 1,000s of analysts |
+| **Document store** | MongoDB M0 1.18 GB (Atlas free) | MongoDB Atlas Dedicated / Amazon DocumentDB — dedicated clusters, VPC peering, 99.99% SLA |
+| **Data lake** | — | AWS S3 + AWS Lake Formation — raw, curated, and aggregated zones; Parquet/Delta Lake format; Athena for ad-hoc SQL |
+| **Compute** | Single machine | Auto-scaling EC2 fleets; spot instances for batch; reserved for real-time |
+| **Concurrency** | 1 user | Thousands of concurrent analysts; load-balanced behind AWS ALB |
+| **Security** | Public URL | VPC isolation · IAM roles · KMS encryption at rest · PrivateLink · SOC 2 / FINRA-ready audit logs |
+| **Compliance** | None | SEC Rule 17a-4 WORM storage · data lineage via AWS Glue Data Catalog · full audit trail |
+| **Disaster recovery** | None | Multi-region active-active · RTO < 1 hr · RPO < 5 min · automated snapshots |
+| **ML / Analytics** | Dashboard charts | SageMaker for signal modeling · Bedrock for LLM-powered filings analysis · QuickSight for BI |""")
 
-        st.markdown("### Cost Estimate")
-        st.markdown("""| Component | Demo | Production |
-|---|---|---|
-| Kafka | $0 | $50–150/mo |
-| PySpark | $0 | $200–500/mo |
-| PostgreSQL | $0 (Supabase) | $15–50/mo |
-| MongoDB | $0 (Atlas M0) | $57–200/mo |
-| Airflow | $0 | $100–200/mo |
-| Alpaca data | $0 (free tier) | $0 (stays free) |
-| GitHub Actions | $0 (2,000 min/mo) | $0 |
-| Streamlit Cloud | $0 (free) | $0 |
-| **Total** | **$0** | **$422–1,100/mo** |""")
+        st.markdown("### Enterprise Cost Estimate (AWS)")
+        st.markdown("""| Component | Demo | Mid-size firm (~50 analysts) | Enterprise (firm-wide) |
+|---|---|---|---|
+| **Streaming** (MSK / Kinesis) | $0 (Docker) | $800–2,000/mo | $5,000–15,000/mo |
+| **Processing** (EMR / Glue) | $0 (local) | $2,000–5,000/mo | $20,000–80,000/mo |
+| **Data Warehouse** (Redshift) | $0 (Supabase free) | $1,000–3,000/mo | $10,000–50,000/mo |
+| **Document DB** (Atlas Dedicated) | $0 (Atlas M0) | $500–1,500/mo | $3,000–10,000/mo |
+| **Data Lake** (S3 + Glue Catalog) | $0 | $200–800/mo | $2,000–10,000/mo |
+| **Orchestration** (MWAA) | $0 (GitHub Actions) | $400–800/mo | $1,500–4,000/mo |
+| **Compute** (EC2 + ALB) | $0 | $500–2,000/mo | $5,000–20,000/mo |
+| **ML / BI** (SageMaker + QuickSight) | $0 | $500–1,500/mo | $5,000–25,000/mo |
+| **Market data feeds** | $0 (free APIs) | $2,000–10,000/mo | $50,000–200,000/mo |
+| **Support + ops** | $0 | $1,000–3,000/mo | $10,000–30,000/mo |
+| **Total** | **$0** | **~$9K–30K/mo** | **~$110K–440K/mo** |""")
 
         st.markdown("### Data Quality")
         st.markdown("""| Dimension | Approach |
