@@ -67,6 +67,7 @@ jobs:
           ALPACA_API_KEY:     ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY:  ${{ secrets.ALPACA_SECRET_KEY }}
           FETCH_FILING_TEXT:  "true"
+          FORCE_REINDEX:      "true"   # re-fetch text for existing docs (50KB→500KB upgrade)
           SKIP_NEWS:          "true"   # already done by shared-data job
           SKIP_FRED:          "true"   # already done by shared-data job
           TICKER_BATCH_INDEX: ${{ matrix.batch }}
