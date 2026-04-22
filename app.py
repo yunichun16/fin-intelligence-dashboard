@@ -434,26 +434,7 @@ if page == "Overview":
     else:
         st.caption(f"Live data · {today.strftime('%B %d, %Y')} · Supabase + MongoDB Atlas")
 
-    counts = q("""SELECT
-        (SELECT COUNT(*) FROM market_data) market_rows,
-        (SELECT COUNT(*) FROM sec_filings) filing_rows,
-        (SELECT COUNT(*) FROM news_sentiment) news_rows,
-        (SELECT COUNT(DISTINCT series_code) FROM market_data) series_count,
-        (SELECT COUNT(DISTINCT ticker) FROM sec_filings) ticker_count""")
-
-    c1,c2,c3,c4,c5 = st.columns(5)
-    def kpi(col,lbl,val,sub="",accent="kpi-v"):
-        with col:
-            st.markdown(f'<div class="kpi"><p class="kpi-l">{lbl}</p><p class="{accent}">{val}</p><p class="kpi-s">{sub}</p></div>', unsafe_allow_html=True)
-    if not counts.empty:
-        r = counts.iloc[0]
-        kpi(c1,"Market data points",f"{int(r.market_rows):,}",f"{int(r.series_count)} FRED series","kpi-v kpi-v-teal")
-        kpi(c2,"SEC filings",f"{int(r.filing_rows):,}",f"{int(r.ticker_count)} companies","kpi-v kpi-v-blue")
-        kpi(c3,"News articles",f"{int(r.news_rows):,}","indexed","kpi-v kpi-v-amber")
-        kpi(c4,"Data sources","3","NewsAPI · Edgar · FRED","kpi-v kpi-v-coral")
-        kpi(c5,"Technologies","5","Kafka·Spark·PG·Mongo·Airflow","kpi-v kpi-v-teal")
-
-    # Live data volume counter
+    # ── Pull all volume data first so KPI boxes can use it ──────────────────────
     vol = q("""SELECT
         (SELECT COUNT(*) FROM market_data)    AS m,
         (SELECT COUNT(*) FROM sec_filings)    AS f,
@@ -465,7 +446,9 @@ if page == "Overview":
             pg_total_relation_size('news_sentiment') +
             pg_total_relation_size('stock_prices')
         )) AS pg_size,
-        (SELECT pg_database_size(current_database())) AS pg_bytes
+        (SELECT pg_database_size(current_database())) AS pg_bytes,
+        (SELECT COUNT(DISTINCT series_code) FROM market_data) AS series_count,
+        (SELECT COUNT(DISTINCT ticker) FROM sec_filings)      AS ticker_count
     """)
 
     # Get MongoDB size estimate separately
@@ -479,15 +462,36 @@ if page == "Overview":
     except Exception:
         pass
 
+    # Derived totals used by both KPI row and the banner below
+    pg_mb = 0; total_mb = 0; total_gb = 0; total_pg_rows = 0
+    size_label = "—"; pct_of_1gb = 0
     if not vol.empty:
         r = vol.iloc[0]
-        pg_mb    = round(int(r["pg_bytes"]) / 1024 / 1024, 1)
-        total_mb = round(pg_mb + mongo_size_mb, 1)
-        total_gb = round(total_mb / 1024, 2)
+        pg_mb         = round(int(r["pg_bytes"]) / 1024 / 1024, 1)
+        total_mb      = round(pg_mb + mongo_size_mb, 1)
+        total_gb      = round(total_mb / 1024, 2)
         total_pg_rows = int(r["m"]) + int(r["f"]) + int(r["n"]) + int(r["sp"])
+        size_label    = f"{total_gb} GB" if total_gb >= 0.1 else f"{total_mb} MB"
+        pct_of_1gb    = min(100, round(total_mb / 1024 * 100, 1))
 
-        size_label = f"{total_gb} GB" if total_gb >= 0.1 else f"{total_mb} MB"
-        pct_of_1gb = min(100, round(total_mb / 1024 * 100, 1))
+    # ── Top KPI row — high-level, non-redundant with the banner below ────────────
+    c1,c2,c3,c4,c5 = st.columns(5)
+    def kpi(col,lbl,val,sub="",accent="kpi-v"):
+        with col:
+            st.markdown(f'<div class="kpi"><p class="kpi-l">{lbl}</p><p class="{accent}">{val}</p><p class="kpi-s">{sub}</p></div>', unsafe_allow_html=True)
+
+    rows_label = f"{total_pg_rows:,}" if total_pg_rows else "—"
+    rows_sub   = "across 4 PostgreSQL tables"
+    storage_sub = f"48 MB PG · {mongo_size_mb} MB Mongo" if mongo_size_mb else "Supabase + MongoDB Atlas"
+
+    kpi(c1, "Total records",    rows_label,   rows_sub,                           "kpi-v kpi-v-teal")
+    kpi(c2, "Combined storage", size_label,   storage_sub,                        "kpi-v kpi-v-amber")
+    kpi(c3, "Data sources",     "4",          "NewsAPI · Edgar · FRED · Alpaca",   "kpi-v kpi-v-coral")
+    kpi(c4, "Pipeline",         "Daily",      "GitHub Actions · 06:00 UTC",        "kpi-v kpi-v-blue")
+    kpi(c5, "Technologies",     "5",          "Kafka·Spark·PG·Mongo·Airflow",      "kpi-v kpi-v-teal")
+
+    if not vol.empty:
+        r = vol.iloc[0]
 
         st.markdown(f"""
         <div style="background:linear-gradient(90deg,#080E1D,#162040);border-radius:12px;
@@ -1215,6 +1219,10 @@ elif page == "About":
     and served via this dashboard. Daily automation via GitHub Actions means data updates
     without any manual intervention.
 
+    **Current scale:** 220,947 rows across 4 PostgreSQL tables · 1.21 GB combined storage
+    (48 MB PostgreSQL + 1,180 MB MongoDB) · 89 companies tracked · 4 data sources
+    (NewsAPI, SEC Edgar, FRED, Alpaca Markets).
+
     **Team:** Ce Zhang · Cai Gao · Yuchun Wu · Yanji Li
     """)
 
@@ -1319,7 +1327,7 @@ elif page == "About":
       <rect x="338" y="400" width="84" height="24" rx="4" fill="#0D2818" stroke="#3BFFA0" stroke-width="0.5"/>
       <text x="380" y="416" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#3BFFA0">stock_prices</text>
       <text x="226" y="450" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#475569">SQL queries · time-series · aggregations · indexed by date + ticker</text>
-      <text x="226" y="465" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#374151">4 tables · ~30,000+ rows and growing</text>
+      <text x="226" y="465" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#374151">4 tables · 220,947 rows · 48 MB</text>
       <text x="226" y="480" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#374151">Free tier: 500 MB · Session Pooler for IPv4</text>
 
       <!-- MongoDB -->
@@ -1376,7 +1384,7 @@ elif page == "About":
 | **News keywords** | 20 | Up to 100 (free tier limit) |
 | **History depth** | 2010–present | Back to 1947 for macro |
 | **Update frequency** | Daily (GitHub Actions) | 3× daily within free limits |
-| **DB size (est.)** | ~50–100 MB now | ~2 GB/year at current rate |
+| **DB size (est.)** | 1.21 GB actual (48 MB PG + 1,180 MB Mongo) | ~2 GB/year at current rate |
 | **Kafka brokers** | 1 (demo) | Add brokers linearly |
 | **Spark workers** | 1 node (demo) | Add workers, same code |""")
 
