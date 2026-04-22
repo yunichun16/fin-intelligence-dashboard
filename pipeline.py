@@ -40,6 +40,13 @@ MONGO_URI = os.environ["MONGO_URI"]
 ALPACA_KEY    = os.environ.get("ALPACA_API_KEY", "")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET_KEY", "")
 
+# ── Apply ticker batch slicing if running in parallel CI mode ────────────────
+if _TICKER_BATCH_INDEX >= 0:
+    start = _TICKER_BATCH_INDEX * _TICKER_BATCH_SIZE
+    end   = start + _TICKER_BATCH_SIZE
+    TARGET_TICKERS = TARGET_TICKERS[start:end]
+    print(f"[Batch mode] Processing tickers {start}–{end-1}: {TARGET_TICKERS}")
+
 # ── Config ────────────────────────────────────────────────────────────────────
 SEARCH_KEYWORDS = [
     "SEC filing earnings report",
@@ -63,6 +70,13 @@ SEARCH_KEYWORDS = [
     "healthcare pharma FDA approval",
     "semiconductor chip AI nvidia market",
 ]
+
+# ── Batch support for parallel GitHub Actions matrix jobs ────────────────────
+# When TICKER_BATCH_INDEX is set, only process that slice of tickers.
+# e.g. TICKER_BATCH_INDEX=0, TICKER_BATCH_SIZE=10 → first 10 tickers
+# This lets 9 parallel jobs each handle ~10 tickers simultaneously.
+_TICKER_BATCH_INDEX = int(os.getenv("TICKER_BATCH_INDEX", "-1"))
+_TICKER_BATCH_SIZE  = int(os.getenv("TICKER_BATCH_SIZE",  "10"))
 
 TARGET_TICKERS = list(dict.fromkeys([
     # Big Tech (20)
@@ -298,8 +312,21 @@ def fetch_filing_text(document_url: str, max_chars: int = 500000) -> str:
         return ""
 
 
-def run_edgar_ingestion(fetch_text: bool = True):
-    print("\n── Section 2: SEC Edgar ────────────────────────────")
+def run_edgar_ingestion(fetch_text: bool = None):
+    """
+    fetch_text=True  → downloads full document text (slow, for weekly deep run)
+    fetch_text=False → metadata only (fast, for daily run)
+    fetch_text=None  → reads FETCH_FILING_TEXT env var (default False for daily CI)
+    """
+    if fetch_text is None:
+        fetch_text = os.getenv("FETCH_FILING_TEXT", "false").lower() == "true"
+
+    mode = "FULL TEXT" if fetch_text else "METADATA ONLY"
+    print(f"\n── Section 2: SEC Edgar [{mode}] ──────────────────")
+    if fetch_text:
+        print("  ⚠ Full text mode — this will take 2-4 hours for all tickers")
+    else:
+        print("  Fast mode — metadata only, no HTTP text downloads")
 
     # Deduplicate tickers
     seen = set()
@@ -310,20 +337,28 @@ def run_edgar_ingestion(fetch_text: bool = True):
         print(f"  {ticker}...", end=" ", flush=True)
         cik = get_cik(ticker)
         if cik:
-            filings = get_filings(cik, form_types=["8-K","10-K","10-Q","8-K/A","10-K/A","20-F"], max_filings=200)
+            # Daily: last 20 filings only. Full text: all 200
+            max_f = 200 if fetch_text else 20
+            filings = get_filings(
+                cik,
+                form_types=["8-K","10-K","10-Q","8-K/A","10-K/A","20-F"],
+                max_filings=max_f
+            )
             for f in filings:
                 f["ticker"] = ticker
-                # Fetch full document text for volume — this is the main 1GB driver
                 if fetch_text and f.get("document_url"):
                     f["full_text"] = fetch_filing_text(f["document_url"])
                     f["text_chars"] = len(f.get("full_text", ""))
-                    time.sleep(0.1)  # Be polite to SEC servers
+                    time.sleep(0.12)  # polite to SEC — 8 req/sec max
                 else:
                     f["full_text"] = ""
                     f["text_chars"] = 0
             all_filings.extend(filings)
-            total_chars = sum(f.get("text_chars", 0) for f in all_filings)
-            print(f"✓ {len(filings)} filings | {total_chars/1024/1024:.1f} MB text so far")
+            if fetch_text:
+                total_mb = sum(f.get("text_chars", 0) for f in all_filings) / 1024 / 1024
+                print(f"✓ {len(filings)} filings | {total_mb:.1f} MB total")
+            else:
+                print(f"✓ {len(filings)}")
         else:
             print("✗ CIK not found")
         time.sleep(0.15)
@@ -616,15 +651,26 @@ def run_mongo_load(articles, filings):
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     start = datetime.utcnow()
+
+    # In batch mode: only batch 0 fetches news + FRED (shared data)
+    # All batches fetch their own ticker slice for SEC + Alpaca
+    batch_mode   = _TICKER_BATCH_INDEX >= 0
+    is_primary   = _TICKER_BATCH_INDEX <= 0   # batch 0 or non-batch mode
+    skip_news    = os.getenv("SKIP_NEWS",  "false").lower() == "true"
+    skip_fred    = os.getenv("SKIP_FRED",  "false").lower() == "true"
+    skip_alpaca  = os.getenv("SKIP_ALPACA","false").lower() == "true"
+
     print("=" * 55)
     print("  FINANCIAL INTELLIGENCE PIPELINE")
     print(f"  Started: {start.strftime('%Y-%m-%d %H:%M UTC')}")
+    if batch_mode:
+        print(f"  Batch: {_TICKER_BATCH_INDEX} | Tickers: {TARGET_TICKERS}")
     print("=" * 55)
 
-    articles    = run_news_ingestion()
-    filings     = run_edgar_ingestion()
-    market      = run_fred_ingestion()
-    stock_bars  = run_alpaca_ingestion()
+    articles   = run_news_ingestion()   if (is_primary and not skip_news)   else []
+    market     = run_fred_ingestion()   if (is_primary and not skip_fred)   else []
+    filings    = run_edgar_ingestion()
+    stock_bars = run_alpaca_ingestion() if not skip_alpaca                  else []
     run_pg_load(articles, filings, market, stock_bars)
     run_mongo_load(articles, filings)
 
