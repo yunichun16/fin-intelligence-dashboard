@@ -1,0 +1,19 @@
+## Financial Intelligence Platform — Python Requirements
+
+# Core
+requests==2.31.0
+pandas==2.1.4
+python-dotenv==1.0.0
+
+# Kafka producers
+kafka-python==2.0.2
+
+# PySpark (install separately via spark-submit --packages for Kafka connector)
+pyspark==3.5.0
+
+# Databases
+psycopg2-binary==2.9.9
+pymongo==4.6.1
+
+# Airflow (install via: pip install apache-airflow==2.8.1)
+# apache-airflow==2.8.1
