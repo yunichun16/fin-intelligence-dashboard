@@ -40,17 +40,6 @@ MONGO_URI = os.environ["MONGO_URI"]
 ALPACA_KEY    = os.environ.get("ALPACA_API_KEY", "")
 ALPACA_SECRET = os.environ.get("ALPACA_SECRET_KEY", "")
 
-# ── Batch support for parallel GitHub Actions matrix jobs ────────────────────
-# When TICKER_BATCH_INDEX is set, only process that slice of tickers.
-_TICKER_BATCH_INDEX = int(os.getenv("TICKER_BATCH_INDEX", "-1"))
-_TICKER_BATCH_SIZE  = int(os.getenv("TICKER_BATCH_SIZE",  "10"))
-
-# ── Apply ticker batch slicing if running in parallel CI mode ────────────────
-if _TICKER_BATCH_INDEX >= 0:
-    start = _TICKER_BATCH_INDEX * _TICKER_BATCH_SIZE
-    end   = start + _TICKER_BATCH_SIZE
-    TARGET_TICKERS = TARGET_TICKERS[start:end]
-    print(f"[Batch mode] Processing tickers {start}–{end-1}: {TARGET_TICKERS}")
 
 # ── Config ────────────────────────────────────────────────────────────────────
 SEARCH_KEYWORDS = [
@@ -96,6 +85,19 @@ TARGET_TICKERS = list(dict.fromkeys([
     # Real Estate & Utilities (5)
     "AMT","PLD","NEE","DUK","SO",
 ]))  # dict.fromkeys deduplicates while preserving order
+
+# ── Batch support for parallel GitHub Actions matrix jobs ────────────────────
+# When TICKER_BATCH_INDEX is set, only process that slice of tickers.
+_TICKER_BATCH_INDEX = int(os.getenv("TICKER_BATCH_INDEX", "-1"))
+_TICKER_BATCH_SIZE  = int(os.getenv("TICKER_BATCH_SIZE",  "10"))
+
+# ── Apply ticker batch slicing if running in parallel CI mode ────────────────
+if _TICKER_BATCH_INDEX >= 0:
+    start = _TICKER_BATCH_INDEX * _TICKER_BATCH_SIZE
+    end   = start + _TICKER_BATCH_SIZE
+    TARGET_TICKERS = TARGET_TICKERS[start:end]
+    print(f"[Batch mode] Processing tickers {start}–{end-1}: {TARGET_TICKERS}")
+
 
 FRED_SERIES = {
     # Market & rates (daily — high volume)
