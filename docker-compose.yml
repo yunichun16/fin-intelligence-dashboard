@@ -1,0 +1,141 @@
+version: "3.9"
+
+# ── Financial Intelligence Platform — Full Local Stack ───────────────────────
+# Technologies: Kafka (streaming) + PySpark (processing) + Airflow (orchestration)
+# Databases: keep using Supabase (PostgreSQL) + MongoDB Atlas (cloud)
+#
+# Usage:
+#   docker-compose up -d        # start all services
+#   docker-compose logs -f      # watch logs
+#   docker-compose down -v      # stop and clean up
+
+services:
+
+  # ── Zookeeper ───────────────────────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: finintel-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Kafka broker ────────────────────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: finintel-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_MESSAGE_MAX_BYTES: 10485760
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ── Create Kafka topics ──────────────────────────────────────────────────────
+  kafka-setup:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: finintel-kafka-setup
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command: >
+      "kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic news-articles  --partitions 3 --replication-factor 1 &&
+       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic sec-filings   --partitions 3 --replication-factor 1 &&
+       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic market-data   --partitions 3 --replication-factor 1 &&
+       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic stock-prices  --partitions 3 --replication-factor 1 &&
+       echo 'All topics created.' && kafka-topics --bootstrap-server kafka:29092 --list"
+
+  # ── PySpark ─────────────────────────────────────────────────────────────────
+  spark:
+    image: bitnami/spark:3.5
+    container_name: finintel-spark
+    environment:
+      SPARK_MODE: master
+      SPARK_MASTER_URL: spark://spark:7077
+    ports:
+      - "4040:4040"    # Spark UI
+      - "7077:7077"    # Spark master
+    volumes:
+      - ./spark:/opt/spark-apps
+      - ./.env:/opt/spark-apps/.env
+
+  # ── Airflow metadata DB ──────────────────────────────────────────────────────
+  airflow-db:
+    image: postgres:15
+    container_name: finintel-airflow-db
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+
+  # ── Airflow webserver ────────────────────────────────────────────────────────
+  airflow-webserver:
+    image: apache/airflow:2.8.1-python3.11
+    container_name: finintel-airflow-webserver
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__SECRET_KEY: finintel2026
+    ports:
+      - "8080:8080"    # Airflow UI → http://localhost:8080  (admin/finintel)
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./.env:/opt/airflow/.env
+    command: >
+      bash -c "airflow db init &&
+               airflow users create --username admin --password finintel
+                 --firstname Admin --lastname User --role Admin
+                 --email admin@finintel.com 2>/dev/null || true &&
+               airflow webserver"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      retries: 5
+
+  # ── Airflow scheduler ────────────────────────────────────────────────────────
+  airflow-scheduler:
+    image: apache/airflow:2.8.1-python3.11
+    container_name: finintel-airflow-scheduler
+    depends_on:
+      airflow-webserver:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./.env:/opt/airflow/.env
+    command: scheduler
+
+volumes:
+  airflow-db-data:
