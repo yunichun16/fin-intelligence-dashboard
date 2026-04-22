@@ -32,6 +32,7 @@ jobs:
           ALPACA_SECRET_KEY:  ${{ secrets.ALPACA_SECRET_KEY }}
           FETCH_FILING_TEXT:  "false"
           SKIP_ALPACA:        "true"
+          SKIP_NEWS:          "true"   # skipping news — NewsAPI daily limit reached
           # TICKER_BATCH_INDEX not set → processes all tickers but skips SEC via batch 0 trick
           TICKER_BATCH_INDEX: "0"
           TICKER_BATCH_SIZE:  "0"   # size 0 = no tickers = skip SEC + Alpaca
@@ -42,9 +43,9 @@ jobs:
     name: "Batch ${{ matrix.batch }} — SEC + Alpaca"
     runs-on: ubuntu-latest
     timeout-minutes: 340   # up to 5h 40min each — independent, parallel
-    needs: shared-data      # wait for news/FRED to finish first
+    needs: shared-data      # wait for news/FRED job (continues even if news rate-limited)
     strategy:
-      fail-fast: false      # if one batch fails, others keep running
+      fail-fast: false      # if one batch fails or news is rate-limited, others keep running
       matrix:
         batch: [0, 1, 2, 3, 4, 5, 6, 7, 8]   # 9 batches × 10 tickers = 90 tickers
 
