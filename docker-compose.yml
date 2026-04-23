@@ -74,7 +74,8 @@ services:
       - ./spark:/opt/spark-apps
       - ./producers:/opt/spark-apps/../producers
       - ./airflow/dags:/opt/spark-apps/../airflow/dags
-      - ./.env:/opt/spark-apps/.env
+    env_file:
+      - .env
 
   # ── Airflow metadata DB ──────────────────────────────────────────────────────
   airflow-db:
@@ -93,8 +94,7 @@ services:
 
   # ── Airflow webserver ────────────────────────────────────────────────────────
   airflow-webserver:
-    build: ./airflow-docker
-    # image: apache/airflow:2.8.1-python3.11
+    image: apache/airflow:2.8.1-python3.11
     container_name: finintel-airflow-webserver
     depends_on:
       airflow-db:
@@ -111,7 +111,8 @@ services:
       - ./airflow/logs:/opt/airflow/logs
       - ./producers:/opt/airflow/producers
       - ./spark:/opt/airflow/spark
-      - ./.env:/opt/airflow/.env
+    env_file:
+      - .env
     command: >
       bash -c "pip install kafka-python requests python-dotenv pymongo psycopg2-binary -q &&
                airflow db init &&
@@ -126,8 +127,7 @@ services:
 
   # ── Airflow scheduler ────────────────────────────────────────────────────────
   airflow-scheduler:
-    build: ./airflow-docker
-    # image: apache/airflow:2.8.1-python3.11
+    image: apache/airflow:2.8.1-python3.11
     container_name: finintel-airflow-scheduler
     depends_on:
       airflow-webserver:
@@ -137,12 +137,12 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     volumes:
-      - ./.env:/opt/airflow/.env:ro
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
       - ./producers:/opt/airflow/producers
       - ./spark:/opt/airflow/spark
-      - ./.env:/opt/airflow/.env
+    env_file:
+      - .env
     command: scheduler
 
 volumes:
