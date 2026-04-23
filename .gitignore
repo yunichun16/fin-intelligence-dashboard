@@ -1,0 +1,21 @@
+# Secrets
+.env
+.env.*
+airflow_vars.json
+.streamlit/secrets.toml
+
+# Local artifacts
+.Rhistory
+docker-compose.yml.backup
+gcp_connection.txt
+
+# Airflow logs
+airflow/logs/
+
+# Python
+*.pyc
+__pycache__/
+.ipynb_checkpoints/
+
+# OS
+.DS_Store

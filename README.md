@@ -1,13 +1,13 @@
 # 📈 Financial Intelligence Platform
 
-> **Group 7 · Columbia University — Big Data Engineering**  
+> **Group 7 · Columbia University — Big Data Engineering**
 > Ce Zhang · Cai Gao · Yuchun Wu · Yanji Li
 
-A real-time ETL pipeline that ingests financial news, SEC public filings, macroeconomic indicators, and live stock prices from four free APIs — transforms and joins them using distributed computing — and serves a unified analytical dashboard.
+A real-time ETL pipeline that ingests financial news, SEC public filings, macroeconomic indicators, and live stock prices from four free APIs — streams them through Apache Kafka, transforms and joins them with PySpark, and serves a unified analytical dashboard.
 
-**Current scale:** 220,947 rows · 1.21 GB combined (48 MB PostgreSQL + 1,180 MB MongoDB) · 89 companies · 4 sources
+The entire stack runs locally via Docker Compose, orchestrated by Apache Airflow, with persistent storage in Supabase (PostgreSQL) and MongoDB Atlas.
 
-**Live dashboard → [fin-intelligence-dashboard.streamlit.app](https://fin-intelligence-dashboard.streamlit.app)**
+**Current scale:** 220,947 rows · 1.21 GB combined (48 MB PostgreSQL + 1,180 MB MongoDB) · 89 companies · 4 sources · 635K+ Kafka messages processed
 
 ---
 
@@ -17,44 +17,94 @@ A real-time ETL pipeline that ingests financial news, SEC public filings, macroe
 ┌─────────────────────────── DATA SOURCES ────────────────────────────┐
 │                                                                      │
 │  NewsAPI           SEC Edgar        FRED API         Alpaca Markets  │
-│  Headlines·JSON    8-K·10-K·REST   12 macro series  OHLCV·IEX feed  │
+│  Headlines·JSON    8-K·10-K·REST   39 macro series  OHLCV·IEX feed   │
 │  Near real-time    On filing        Daily/Monthly    Daily bars      │
 │                                                                      │
-└──────────────────┬──────────────┬──────────────┬───────────────────┘
-                   │              │              │
-                   ▼              ▼              ▼
-┌─────────────────────── STREAMING LAYER ─────────────────────────────┐
-│           Apache Kafka  (3 topics)                                   │
-│     news-articles · sec-filings · market-data                       │
-│  Decouples producers from consumers · durable log · no data loss    │
+└─────────┬─────────────┬─────────────┬─────────────┬─────────────────┘
+          │             │             │             │
+          ▼             ▼             ▼             ▼
+┌──────────────────── PRODUCERS (Airflow Tasks) ──────────────────────┐
+│                                                                      │
+│  produce_news      produce_edgar    produce_market (FRED + Alpaca)  │
+│  BashOperator → Python script → kafka-python client                 │
+│                                                                      │
 └──────────────────────────────┬──────────────────────────────────────┘
                                │
                                ▼
-┌─────────────────── PROCESSING LAYER ────────────────────────────────┐
-│           Apache PySpark  (distributed)                              │
-│     Deduplicate → Standardise → Categorise → Cross-source join      │
-│                  orchestrated by Apache Airflow                      │
-└────────────────┬─────────────────────────────┬───────────────────────┘
+┌─────────────────────── STREAMING LAYER ─────────────────────────────┐
+│              Apache Kafka 7.5.0  (Docker container)                  │
+│     4 topics:  news-articles · sec-filings · market-data · stock-prices │
+│     Broker: kafka:29092 (internal) · localhost:9092 (external)      │
+│     Zookeeper coordination · 3 partitions/topic                      │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+                               ▼
+┌──────────────────── PROCESSING LAYER ───────────────────────────────┐
+│         PySpark 3.5  (spark-submit --master local[*])                │
+│                                                                      │
+│  Batch read from Kafka → dedupe on natural keys → schema enforce →  │
+│  Cross-source join (filings ± 7d window with news) →                │
+│  Dual sink: JDBC to Postgres · Mongo Spark Connector to Atlas       │
+│                                                                      │
+│     Runs inside the Airflow scheduler container                      │
+│     Packages: spark-sql-kafka-0-10 · mongo-spark-connector · postgresql │
+└────────────────┬─────────────────────────────┬──────────────────────┘
                  │                             │
-        structured data             unstructured docs
+        structured data                 unstructured docs
                  ▼                             ▼
-┌──────────────────┐              ┌─────────────────────────┐
-│  PostgreSQL       │              │  MongoDB Atlas           │
-│  (Supabase)       │              │  news_articles           │
-│                   │              │  sec_filing_documents    │
-│  market_data      │              └─────────────────────────┘
-│  sec_filings      │
-│  news_sentiment   │              ┌─────────────────────────┐
-│  stock_prices     │              │  GitHub Actions          │
-└──────────┬────────┘              │  Runs daily @ 06:00 UTC  │
-           │                       │  pipeline.py automated   │
-           ▼                       └─────────────────────────┘
-┌─────────────────────── SERVE LAYER ─────────────────────────────────┐
-│         Streamlit Dashboard  (Streamlit Cloud)                       │
-│  Overview · Market Data · Stock Prices · SEC Filings                │
-│  News Feed · Cross-Source Analysis · Alert Simulation               │
+┌────────────────────────┐         ┌──────────────────────────┐
+│  PostgreSQL             │         │  MongoDB Atlas            │
+│  (Supabase · cloud)     │         │  (M0 free · cloud)        │
+│                         │         │                           │
+│  market_data            │         │  news_articles            │
+│  sec_filings            │         │  sec_filing_documents     │
+│  news_sentiment         │         │                           │
+│  stock_prices           │         │  Full article text +      │
+│                         │         │  filing document content  │
+│  4 tables · 220,947 rows│         │  1.18 GB · flexible schema│
+└──────────┬──────────────┘         └─────────────┬─────────────┘
+           │                                      │
+           └──────────────┬───────────────────────┘
+                          │
+                          ▼
+┌──────────────────── ORCHESTRATION ──────────────────────────────────┐
+│                  Apache Airflow 2.8.1                                │
+│                                                                      │
+│     DAG: finintel_pipeline  (schedule: 0 6 * * * UTC)               │
+│     [produce_news, produce_edgar, produce_market] >> spark_transform│
+│         >> log_complete                                              │
+│                                                                      │
+│     Metadata DB: PostgreSQL 15 (finintel-airflow-db container)       │
+│     Webserver UI: http://localhost:8080  (admin / finintel)         │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+                               ▼
+┌────────────────────────── SERVE LAYER ──────────────────────────────┐
+│                Streamlit Dashboard  (local, port 8501)               │
+│                                                                      │
+│  7 pages:  Overview · Market Data · Stock Prices · SEC Filings       │
+│            News Feed · Cross-Source · About                          │
+│                                                                      │
+│  Reads from Supabase + MongoDB Atlas directly                        │
+│  Dark/Light theme toggle · 89 tickers · interactive Plotly charts   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Docker stack
+
+All infrastructure runs in Docker containers via `docker-compose.yml`:
+
+| Container | Image | Role | Ports |
+|---|---|---|---|
+| `finintel-zookeeper` | `confluentinc/cp-zookeeper:7.5.0` | Kafka coordination | 2181 |
+| `finintel-kafka` | `confluentinc/cp-kafka:7.5.0` | Message broker · 4 topics | 9092 (external), 29092 (internal) |
+| `finintel-airflow-db` | `postgres:15` | Airflow metadata DB | 5432 (internal) |
+| `finintel-airflow-webserver` | custom (see `airflow-docker/Dockerfile`) | Airflow UI + scheduler | 8080 |
+| `finintel-airflow-scheduler` | custom (same image) | DAG execution + Spark worker | — |
+
+The custom Airflow image extends `apache/airflow:2.8.1-python3.11` with OpenJDK 17, PySpark 3.5, and `spark-submit` on PATH so `spark_transform` can run Spark jobs natively inside Airflow. The Dockerfile uses `dpkg --print-architecture` so it builds correctly on both Apple Silicon (arm64) and Intel (amd64).
 
 ---
 
@@ -63,13 +113,23 @@ A real-time ETL pipeline that ingests financial news, SEC public filings, macroe
 ```
 fin-intelligence-dashboard/
 ├── app.py                        # Streamlit dashboard (7 pages)
-├── pipeline.py                   # Standalone ETL script
-├── requirements.txt              # Python dependencies
-├── .github/
-│   └── workflows/
-│       └── daily_pipeline.yml   # GitHub Actions daily scheduler
+├── pipeline.py                   # Standalone Python ETL (alternative to the DAG)
+├── docker-compose.yml            # 5-container stack definition
+├── airflow-docker/
+│   └── Dockerfile                # Custom Airflow image (adds Java + PySpark)
+├── airflow/
+│   └── dags/
+│       └── finintel_dag.py       # Orchestration: 5-task DAG
+├── producers/
+│   ├── producer_news.py          # NewsAPI → Kafka
+│   ├── producer_edgar.py         # SEC Edgar → Kafka
+│   └── producer_market.py        # FRED + Alpaca → Kafka
+├── spark/
+│   └── spark_consumer.py         # Kafka → transform → Postgres + Mongo
+├── requirements.txt              # Streamlit + dashboard deps
 ├── .streamlit/
-│   └── secrets.toml             # Connection secrets (never commit real values)
+│   └── secrets.toml              # Connection secrets (git-ignored)
+├── .env                          # API keys and DB credentials (git-ignored)
 └── README.md
 ```
 
@@ -79,24 +139,26 @@ fin-intelligence-dashboard/
 
 | Source | What we pull | Volume | Frequency |
 |---|---|---|---|
-| **NewsAPI** | Financial headlines from 150,000+ sources | 1,572 articles indexed | Every 15 min (free: daily) |
-| **SEC Edgar** | 8-K & 10-K filings, 89 companies | 17,204 filings | On filing (near real-time) |
-| **FRED** | 39 macroeconomic series back to 2010 | 109,344 data points | Daily / Monthly / Quarterly |
-| **Alpaca Markets** | Daily OHLCV bars, 89 tickers, IEX feed | 92,827 rows | Daily |
+| **NewsAPI** | Financial headlines from 150,000+ sources | 1,572 articles indexed | 20 queries per run |
+| **SEC Edgar** | 8-K & 10-K filings, 89 companies | 17,204 filings | On filing (polled daily) |
+| **FRED** | 39 macroeconomic series back to 2000 | 109,344 data points | Daily / Monthly / Quarterly |
+| **Alpaca Markets** | Daily OHLCV bars, 89 tickers, IEX feed | 92,827 rows | Daily (paper trading API) |
 
 ---
 
 ## Technology stack
 
-| Technology | Role | Free tier used |
+| Layer | Technology | Role |
 |---|---|---|
-| **Apache Kafka** | Streaming buffer — decouples ingestion from processing | Docker (local) |
-| **Apache PySpark** | Distributed transformation + cross-source join | Colab / local |
-| **PostgreSQL** | Structured warehouse — 4 tables, indexed by date/ticker | Supabase free |
-| **MongoDB** | Document store — full article text + filing documents | Atlas M0 free |
-| **Apache Airflow** | Pipeline orchestration and DAG scheduling | Docker (local) |
-| **GitHub Actions** | Daily automated pipeline runs (06:00 UTC) | GitHub free (2,000 min/mo) |
-| **Streamlit Cloud** | Dashboard hosting with public URL | Streamlit free |
+| **Streaming** | Apache Kafka 7.5.0 | Buffered message queue decoupling producers from consumers |
+| **Coordination** | Apache Zookeeper 7.5.0 | Kafka cluster state management |
+| **Processing** | Apache PySpark 3.5.0 | Distributed batch transformations + cross-source joins |
+| **Runtime** | OpenJDK 17 | JVM for Spark |
+| **Orchestration** | Apache Airflow 2.8.1 | DAG scheduling, task retry, dependency management |
+| **Structured store** | PostgreSQL 15 (Supabase) | 4 relational tables, indexed by date/ticker |
+| **Document store** | MongoDB Atlas M0 | Full-text filing docs + article content, flexible schema |
+| **Serve** | Streamlit + Plotly | Interactive dashboard with 7 analytical views |
+| **Containerisation** | Docker Compose | 5-service local deployment |
 
 ---
 
@@ -104,23 +166,24 @@ fin-intelligence-dashboard/
 
 ### Prerequisites
 
-```bash
-pip install requests pandas psycopg2-binary pymongo python-dotenv plotly streamlit
-```
+- Docker Desktop (with at least 6 GB RAM allocated)
+- Python 3.11+ (for Streamlit dashboard on host)
+- Free API accounts: [NewsAPI](https://newsapi.org), [FRED](https://fred.stlouisfed.org/docs/api/api_key.html), [Alpaca](https://alpaca.markets) paper trading
+- Free cloud DB accounts: [Supabase](https://supabase.com), [MongoDB Atlas](https://www.mongodb.com/cloud/atlas)
 
-### Environment variables
+### 1. Environment variables
 
-Create a `.env` file in the project root (never commit this):
+Create a `.env` file in the project root (git-ignored):
 
 ```env
-# NewsAPI — free key from newsapi.org
+# NewsAPI
 NEWS_API_KEY=your_key_here
 
-# FRED — free key from fred.stlouisfed.org/docs/api/api_key.html
+# FRED
 FRED_API_KEY=your_key_here
 
-# Supabase (PostgreSQL) — Session Pooler connection details
-SUPABASE_HOST=aws-0-us-east-1.pooler.supabase.com
+# Supabase (PostgreSQL) — Session Pooler details
+SUPABASE_HOST=aws-1-us-east-1.pooler.supabase.com
 SUPABASE_PORT=5432
 SUPABASE_DB=postgres
 SUPABASE_USER=postgres.your_project_id
@@ -129,33 +192,136 @@ SUPABASE_PASSWORD=your_password
 # MongoDB Atlas
 MONGO_URI=mongodb+srv://user:password@cluster.mongodb.net/?appName=Cluster0
 
-# Alpaca Markets — free paper trading API from alpaca.markets
+# Alpaca Markets (paper trading)
 ALPACA_API_KEY=your_key_here
 ALPACA_SECRET_KEY=your_secret_here
+
+# Kafka (internal Docker hostname)
+KAFKA_BOOTSTRAP=kafka:29092
 ```
 
-### Run the pipeline manually
+### 2. Build the custom Airflow image and start the stack
 
 ```bash
-python pipeline.py
+docker compose up -d --build
 ```
 
-This runs the full ETL — Extract from all 4 sources → Transform with PySpark → Load into PostgreSQL and MongoDB.
+First build takes ~10 minutes (pulls ~2 GB of images, installs OpenJDK + PySpark). Subsequent starts take ~60 seconds.
 
-### Run the dashboard locally
+Verify:
 
 ```bash
+docker compose ps
+```
+
+All five containers should show `Up` and Airflow ones `(healthy)`.
+
+### 3. Import API keys and DB credentials into Airflow
+
+Convert `.env` to the JSON format Airflow expects, then import:
+
+```bash
+python3 -c "
+import json
+with open('.env') as f:
+    d = {k: v for line in f if '=' in line and not line.startswith('#')
+         for k, v in [line.strip().split('=', 1)]}
+with open('airflow_vars.json', 'w') as f:
+    json.dump(d, f, indent=2)
+"
+
+docker compose cp airflow_vars.json airflow-webserver:/tmp/airflow_vars.json
+docker compose exec airflow-webserver airflow variables import /tmp/airflow_vars.json
+```
+
+Expected: `11 of 11 variables successfully updated.`
+
+### 4. Configure Streamlit secrets
+
+Create `.streamlit/secrets.toml` (git-ignored):
+
+```toml
+[postgres]
+host     = "aws-1-us-east-1.pooler.supabase.com"
+port     = 5432
+dbname   = "postgres"
+user     = "postgres.your_project_id"
+password = "your_password"
+
+MONGO_URI = "mongodb+srv://user:password@cluster.mongodb.net/?appName=Cluster0"
+```
+
+### 5. Trigger the pipeline
+
+Open the Airflow UI at http://localhost:8080 (login `admin` / `finintel`), find `finintel_pipeline`, and click the ▶ trigger button.
+
+Or from the CLI:
+
+```bash
+docker compose exec airflow-webserver airflow dags trigger finintel_pipeline
+```
+
+Takes ~10 minutes end-to-end: producers fire in parallel (~2 min), Spark resolves Maven dependencies + runs transforms (~5 min), results land in Supabase + MongoDB.
+
+### 6. Run the dashboard
+
+```bash
+pip install -r requirements.txt
 streamlit run app.py
 ```
 
-### Automated daily runs (GitHub Actions)
+Open http://localhost:8501.
 
-The pipeline runs automatically every day at 06:00 UTC via `.github/workflows/daily_pipeline.yml`.
+---
 
-To set this up:
-1. Go to your GitHub repo → **Settings → Secrets and variables → Actions**
-2. Add all 9 secrets from the environment variables list above
-3. Go to **Actions** tab → **Daily ETL Pipeline** → **Run workflow** to test manually
+## DAG structure
+
+```
+finintel_pipeline  (schedule: 0 6 * * * UTC)
+
+    ┌─────────────────┐
+    │  produce_news   │──┐
+    │  (BashOperator) │  │
+    └─────────────────┘  │
+                         │
+    ┌─────────────────┐  │  ┌──────────────────┐      ┌─────────────────┐
+    │ produce_market  │──┼─▶│  spark_transform │─────▶│  log_complete   │
+    │  (BashOperator) │  │  │  (BashOperator)  │      │ (PythonOperator)│
+    └─────────────────┘  │  └──────────────────┘      └─────────────────┘
+                         │
+    ┌─────────────────┐  │
+    │ produce_edgar   │──┘
+    │  (BashOperator) │
+    └─────────────────┘
+```
+
+Three producers run in parallel, each publishing to its own Kafka topic. `spark_transform` fans-in after all three complete, reads from Kafka, and lands data in both warehouses. `log_complete` posts a run summary.
+
+---
+
+## Spark job (spark_consumer.py)
+
+`spark-submit` invoked from the Airflow scheduler container:
+
+```bash
+spark-submit \
+  --master local[*] \
+  --conf spark.jars.ivy=/tmp/ivy \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,\
+             org.mongodb.spark:mongo-spark-connector_2.12:10.3.0,\
+             org.postgresql:postgresql:42.7.1 \
+  /opt/airflow/spark/spark_consumer.py
+```
+
+**Operations performed per Kafka topic:**
+
+1. **Batch read** from Kafka with explicit schema (StructType per topic)
+2. **Filter + dedupe** on natural keys (URL, accession_number, `series_code+date`, `ticker+date`)
+3. **Type cast** date/timestamp columns
+4. **Cross-source join** (filings × news within ±7 days on `datediff`)
+5. **Dual sink** — JDBC write to Supabase + Mongo Spark Connector write to Atlas
+
+Deduplication is idempotent: reruns produce the same final state.
 
 ---
 
@@ -163,12 +329,12 @@ To set this up:
 
 | Page | Description |
 |---|---|
-| **Overview** | KPI cards, S&P 500 trend, live macro snapshot with MoM change, pipeline health |
-| **Market Data** | Interactive FRED indicator charts — line/area/bar, moving average, compare mode, recession bands |
-| **Stock Prices** | Alpaca OHLCV — multi-ticker comparison, candlestick chart, return correlations, volume ranking |
-| **SEC Filings** | Filterable filings explorer — form type, company search, timeline, document links |
-| **News Feed** | MongoDB articles — sentiment scoring, category filter, card grid / compact list view |
-| **Cross-Source** | Filing + news overlap, market context with filing markers, correlation heatmap, alert simulation |
+| **Overview** | KPI cards, S&P 500 trend (50-day MA), filings-by-company, cross-source metrics |
+| **Market Data** | Interactive FRED charts — line/area/bar, moving averages, compare mode, recession bands |
+| **Stock Prices** | Alpaca OHLCV — multi-ticker comparison, candlestick, return correlations, volume ranking |
+| **SEC Filings** | Filterable explorer — form type, company search, timeline, document links |
+| **News Feed** | MongoDB articles — sentiment scoring, category filter, card grid / compact list |
+| **Cross-Source** | Filing + news overlap, market context with filing markers, correlation heatmap |
 | **About** | Architecture diagram, scalability assessment, cost estimate, data quality |
 
 ---
@@ -187,32 +353,72 @@ stock_prices    (ticker, date, open, high, low, close, volume, vwap)
 ### MongoDB (Atlas)
 
 ```
-news_articles          { title, description, url, published_at, content, category, source_name }
-sec_filing_documents   { ticker, company_name, form_type, filed_at, accession_number, document_url }
+news_articles         { title, description, url, published_at, content, category, source_name }
+sec_filing_documents  { ticker, company_name, form_type, filed_at, accession_number, full_text }
 ```
+
+---
+
+## Operations
+
+### Inspecting Kafka
+
+```bash
+# List topics
+docker compose exec kafka kafka-topics --bootstrap-server kafka:29092 --list
+
+# Count messages per topic (lifetime offsets)
+for topic in news-articles market-data sec-filings stock-prices; do
+  total=$(docker compose exec kafka kafka-run-class kafka.tools.GetOffsetShell \
+    --broker-list kafka:29092 --topic $topic --time -1 2>/dev/null \
+    | awk -F: '{sum += $3} END {print sum}')
+  echo "$topic: $total messages"
+done
+
+# Peek at actual JSON messages
+docker compose exec kafka kafka-console-consumer \
+  --bootstrap-server kafka:29092 \
+  --topic market-data \
+  --from-beginning --max-messages 3 --timeout-ms 5000
+```
+
+### Pausing the scheduled DAG
+
+```bash
+docker compose exec airflow-webserver airflow dags pause finintel_pipeline
+```
+
+### Stopping vs tearing down
+
+- `docker compose stop` — pause containers (preserves state and Airflow Variables)
+- `docker compose down` — delete containers (wipes Airflow Variables and Kafka data; you'll need to re-import and re-trigger)
+
+### Viewing Spark logs
+
+In the Airflow UI: click `spark_transform` task → **Logs** tab. Look for `SparkSession created`, per-topic row counts, and JDBC / Mongo write confirmations.
 
 ---
 
 ## Scalability — Path to Enterprise
 
-The demo runs entirely on free tiers. The architecture is intentionally layered so each component maps directly to a cloud-managed AWS equivalent — no code rewrites, only infrastructure and config changes. The table below shows how this system scales to firm-wide production serving thousands of analysts.
+The demo stack runs entirely on free tiers and local Docker. Every layer maps directly to a cloud-managed AWS equivalent — no code rewrites, only infrastructure and config changes. The table below shows how this system scales to firm-wide production serving thousands of analysts.
 
 | Dimension | Demo (now) | Enterprise (AWS) |
 |---|---|---|
-| **Coverage** | 89 tickers, 4 sources | 10,000+ equities, options chains, FX, crypto, commodities, 50+ alt-data feeds |
+| **Coverage** | 89 tickers, 4 sources | 10,000+ equities, options, FX, crypto, commodities, 50+ alt-data feeds |
 | **Data volume** | 220,947 rows · 1.21 GB | Billions of rows · multi-TB/day ingest · petabyte data lake on S3 |
-| **Update latency** | Daily batch (GitHub Actions) | Sub-second — tick-by-tick via AWS MSK (managed Kafka) + Kinesis |
-| **Streaming** | 1 Kafka broker (Docker) | AWS MSK — managed multi-AZ Kafka; auto-scaling broker count |
-| **Processing** | PySpark local / Colab | AWS EMR (managed Spark) + Glue serverless ETL; hundreds of worker nodes on demand |
-| **Orchestration** | GitHub Actions cron | Amazon MWAA (managed Airflow) — enterprise DAGs, SLA monitoring, alerting |
-| **Structured store** | PostgreSQL 48 MB (Supabase free) | Amazon Redshift — columnar MPP warehouse; petabyte-scale; 1,000s of concurrent analysts |
-| **Document store** | MongoDB M0 1.18 GB (Atlas free) | MongoDB Atlas Dedicated / Amazon DocumentDB — VPC peering, 99.99% SLA |
-| **Data lake** | — | AWS S3 + Lake Formation — raw/curated/aggregated zones; Parquet/Delta Lake; Athena for ad-hoc SQL |
-| **Concurrency** | 1 user | Thousands of concurrent users behind AWS ALB with auto-scaling EC2 |
-| **Security** | Public URL | VPC isolation · IAM roles · KMS encryption · PrivateLink · SOC 2 / FINRA-ready audit logs |
-| **Compliance** | None | SEC Rule 17a-4 WORM storage · data lineage via Glue Data Catalog · full audit trail |
-| **Disaster recovery** | None | Multi-region active-active · RTO < 1 hr · RPO < 5 min · automated snapshots |
-| **ML / Analytics** | Dashboard charts | SageMaker for signal modeling · Bedrock for LLM filings analysis · QuickSight for BI |
+| **Update latency** | Daily batch (cron-scheduled DAG) | Sub-second — tick-by-tick via AWS MSK + Kinesis |
+| **Streaming** | 1 Kafka broker (Docker) | AWS MSK — managed multi-AZ Kafka; auto-scaling brokers |
+| **Processing** | PySpark `local[*]` in Airflow container | AWS EMR (managed Spark) + Glue serverless ETL; hundreds of workers |
+| **Orchestration** | Airflow in Docker | Amazon MWAA (managed Airflow) — enterprise DAGs, SLA alerting |
+| **Structured store** | Supabase free (48 MB) | Amazon Redshift — columnar MPP warehouse; petabyte-scale |
+| **Document store** | Atlas M0 (1.18 GB) | Atlas Dedicated / Amazon DocumentDB — VPC peering, 99.99% SLA |
+| **Data lake** | — | AWS S3 + Lake Formation — raw/curated/aggregated zones; Parquet/Delta |
+| **Concurrency** | 1 user | Thousands behind AWS ALB with auto-scaling EC2 |
+| **Security** | Local only | VPC isolation · IAM · KMS encryption · PrivateLink · SOC 2 / FINRA audit logs |
+| **Compliance** | None | SEC Rule 17a-4 WORM storage · Glue Data Catalog lineage · full audit trail |
+| **Disaster recovery** | None | Multi-region active-active · RTO < 1 hr · RPO < 5 min |
+| **ML / Analytics** | Dashboard charts | SageMaker for signals · Bedrock for LLM filings analysis · QuickSight for BI |
 
 ### Cost estimate
 
@@ -236,9 +442,9 @@ The demo runs entirely on free tiers. The architecture is intentionally layered 
 
 | Dimension | Implementation |
 |---|---|
-| **Completeness** | Deduplication by URL (news) and accession number (filings) |
-| **Consistency** | PySpark schema enforcement with explicit type casting |
-| **Timeliness** | Daily GitHub Actions + manual refresh button in dashboard |
+| **Completeness** | Spark `dropDuplicates` on URL (news), accession_number (filings), (series_code, date) for market, (ticker, date) for prices |
+| **Consistency** | PySpark explicit `StructType` schemas + type casting for every Kafka topic |
+| **Timeliness** | Airflow daily cron + manual trigger · Streamlit refresh button |
 | **Accuracy** | Primary sources only — no third-party aggregators |
 | **Licensing** | All free-tier or public domain (SEC Edgar is US government data) |
 
@@ -246,10 +452,11 @@ The demo runs entirely on free tiers. The architecture is intentionally layered 
 
 ## Development notes
 
-- The **Colab notebook** (`financial_intelligence_pipeline_colab.ipynb`) is kept for documentation and debugging. Day-to-day ingestion runs via `pipeline.py` + GitHub Actions.
-- The **Kafka section** is optional for local runs — `pipeline.py` loads data directly if Kafka is not running.
-- **Streamlit secrets** are managed via App Settings → Secrets on Streamlit Cloud. Never commit real credentials to the repo.
-- Dark mode is toggled via the sidebar ☀️ / 🌙 radio button and applies to all charts and components.
+- **Kafka data is non-persistent** — messages live only as long as the container does. Once Spark consumes a batch and writes to the warehouses, Kafka's copy is expendable. To populate a topic for demo purposes, clear and rerun the relevant producer task in Airflow.
+- **Airflow Variables are wiped on `docker compose down`** — metadata DB volume is ephemeral. Use `docker compose stop` for pausing. Re-import variables after a full tear-down.
+- **Ivy cache can get corrupted** on first Spark runs. The DAG works around this by pointing Ivy at `/tmp/ivy` (tmpfs) and wiping it before each run.
+- **Apple Silicon / Intel compatibility** — the Dockerfile detects architecture at build time so the same repo builds cleanly on M-series Macs and x86 machines.
+- **`load_dotenv()` in producers is wrapped in try/except** — inside Airflow containers there's no `.env` file (Variables pass env vars directly), but the producers still run standalone for local debugging.
 
 ---
 

@@ -16,7 +16,8 @@
 set -e  # exit on any error
 
 # ── Config — change these if needed ──────────────────────────────────────────
-PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
+PROJECT_ID="finintel-demo"   # personal GCP project (outside Columbia org)
+BILLING_ACCOUNT=""  # using personal free trial credits
 REGION="us-central1"
 ZONE="us-central1-a"
 VM_NAME="finintel-demo"
@@ -96,7 +97,7 @@ while IFS='=' read -r key value; do
     [[ -z "$key" ]] && continue
     value="${value%\"}"
     value="${value#\"}"
-    SECRET_NAME="finintel-${key,,}"  # lowercase
+    SECRET_NAME="finintel-$(echo "$key" | tr '[:upper:]' '[:lower:]')"  # lowercase (bash 3 compatible)
     echo "  Storing $key..."
     echo -n "$value" | gcloud secrets create "$SECRET_NAME" --data-file=- --quiet 2>/dev/null || \
     echo -n "$value" | gcloud secrets versions add "$SECRET_NAME" --data-file=- --quiet 2>/dev/null

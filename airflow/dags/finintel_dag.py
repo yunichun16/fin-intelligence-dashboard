@@ -82,7 +82,7 @@ with DAG(
             "KAFKA_BOOTSTRAP":       "{{ var.value.KAFKA_BOOTSTRAP | default('kafka:29092') }}",
             "FETCH_FILING_TEXT":     "true",
             "MAX_FILING_CHARS":      "500000",
-            "MAX_FILINGS_PER_TICKER":"200",
+            "MAX_FILINGS_PER_TICKER":"20",
         },
         execution_timeout=timedelta(hours=5),
         doc_md="Fetches SEC Edgar filings with full text and publishes to Kafka `sec-filings` topic.",
@@ -109,7 +109,8 @@ with DAG(
     spark_transform = BashOperator(
         task_id="spark_transform",
         bash_command=(
-            "spark-submit "
+            "/home/airflow/.local/bin/spark-submit "
+            "--conf spark.jars.ivy=/tmp/ivy "
             "--master local[*] "
             "--packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,"
             "org.mongodb.spark:mongo-spark-connector_2.12:10.3.0,"

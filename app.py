@@ -32,19 +32,8 @@ st.markdown("""
   [data-testid="stSidebar"] .stSelectbox > div { background: #0F1729 !important; border-color: #1E3A5F !important; }
   [data-testid="stSidebar"] .stMultiSelect > div { background: #0F1729 !important; border-color: #1E3A5F !important; }
 
-  /* ── Light mode (default) ── */
-  .main { background: #F8FAFF; }
+  /* ── Light mode base (will be forced via explicit block below) ── */
   .block-container { padding-top: 1.5rem; }
-
-  /* ── Dark mode overrides ── */
-  @media (prefers-color-scheme: dark) {
-    .main { background: #0D1117; }
-    .news-card { background: #161B27 !important; border-color: #1E3A5F !important; }
-    .news-title { color: #E2E8F0 !important; }
-  }
-  [data-theme="dark"] .main { background: #0D1117; }
-  [data-theme="dark"] .news-card { background: #161B27 !important; }
-  [data-theme="dark"] .news-title { color: #E2E8F0 !important; }
 
   /* ── KPI cards — dark always, bright accent numbers ── */
   .kpi { background: linear-gradient(135deg,#080E1D,#162040); border-radius:14px;
@@ -122,13 +111,28 @@ if DARK:
       [data-testid="block-container"]
         { background: #0D1117 !important; }
 
-      /* ── Text ── */
-      h1,h2,h3,h4,h5,h6 { color: #F1F5F9 !important; }
-      p, span, label, div { color: #CBD5E1 !important; }
+      /* ── Text (scoped to main, NOT sidebar, NOT KPI accent classes) ── */
+      [data-testid="stAppViewContainer"] h1,
+      [data-testid="stAppViewContainer"] h2,
+      [data-testid="stAppViewContainer"] h3,
+      [data-testid="stAppViewContainer"] h4,
+      [data-testid="stAppViewContainer"] h5,
+      [data-testid="stAppViewContainer"] h6 { color: #F1F5F9 !important; }
+      [data-testid="stAppViewContainer"] .main p,
+      [data-testid="stAppViewContainer"] .main span,
+      [data-testid="stAppViewContainer"] .main label,
+      [data-testid="stAppViewContainer"] .main div { color: #CBD5E1; }
       .sec { color: #3A86FF !important; }
       .kpi-l, .kpi-s { color: rgba(203,213,225,.5) !important; }
-      [data-testid="stMarkdownContainer"] p { color: #CBD5E1 !important; }
+      [data-testid="stMarkdownContainer"] p { color: #CBD5E1; }
       [data-testid="stCaptionContainer"] { color: #64748B !important; }
+
+      /* ── KPI accent colors — must win over the blanket text rule ── */
+      .kpi .kpi-v,       .kpi p.kpi-v       { color: #3BFFA0 !important; }
+      .kpi .kpi-v-blue,  .kpi p.kpi-v-blue  { color: #5BA4FF !important; }
+      .kpi .kpi-v-amber, .kpi p.kpi-v-amber { color: #FFD166 !important; }
+      .kpi .kpi-v-coral, .kpi p.kpi-v-coral { color: #FF6B6B !important; }
+      .kpi .kpi-v-teal,  .kpi p.kpi-v-teal  { color: #3BFFA0 !important; }
 
       /* ── Metrics ── */
       [data-testid="stMetric"] { background: #161B27 !important; border-radius:10px; padding:10px; }
@@ -140,7 +144,6 @@ if DARK:
       [data-testid="stDataFrame"] { background: #161B27 !important; border-radius:10px; overflow:hidden; }
       [data-testid="stDataFrame"] iframe { background: #161B27 !important; }
       .stDataFrame > div { background: #161B27 !important; }
-      /* Force the internal Streamlit dataframe iframe content */
       [data-testid="stDataFrame"] [class*="dataframe"] { background: #161B27 !important; color: #E2E8F0 !important; }
 
       /* ── Form inputs ── */
@@ -193,11 +196,9 @@ if DARK:
         border: 1px solid #1E293B !important;
         border-radius: 10px !important;
       }
-      /* Remove the default white iframe background */
       [data-testid="stDataFrame"] iframe {
         background: transparent !important;
       }
-      /* Header row */
       [data-testid="stDataFrame"] th {
         background: #111827 !important;
         color: #64748B !important;
@@ -206,24 +207,117 @@ if DARK:
         border-bottom: 1px solid #1E293B !important;
         font-weight: 600 !important;
       }
-      /* Data cells */
       [data-testid="stDataFrame"] td {
         color: #CBD5E1 !important;
         background: #0D1117 !important;
         border-bottom: 1px solid #111827 !important;
         font-size: 12px !important;
       }
-      /* Hover row highlight */
       [data-testid="stDataFrame"] tr:hover td {
         background: #111827 !important;
       }
-      /* Index column */
       [data-testid="stDataFrame"] th:first-child,
       [data-testid="stDataFrame"] td:first-child {
         background: #111827 !important;
         color: #475569 !important;
       }
 
+      /* ── Markdown tables (About page) ── */
+      [data-testid="stAppViewContainer"] table { background: #0D1117 !important; border-collapse: collapse; }
+      [data-testid="stAppViewContainer"] table th {
+        background: #111827 !important; color: #E2E8F0 !important;
+        border: 1px solid #1E293B !important; padding: 8px 12px;
+      }
+      [data-testid="stAppViewContainer"] table td {
+        background: #0D1117 !important; color: #CBD5E1 !important;
+        border: 1px solid #1E293B !important; padding: 8px 12px;
+      }
+      [data-testid="stAppViewContainer"] table td strong,
+      [data-testid="stAppViewContainer"] table th strong { color: #F1F5F9 !important; }
+      [data-testid="stAppViewContainer"] blockquote { color: #94A3B8 !important; border-left: 3px solid #3A86FF !important; }
+
+    </style>""", unsafe_allow_html=True)
+else:
+    # ── LIGHT MODE — forced, so it wins even when OS is in dark mode ──
+    st.markdown("""<style>
+      /* ── Main backgrounds — white everywhere except sidebar ── */
+      .main,
+      [data-testid="stAppViewContainer"],
+      [data-testid="stApp"],
+      section[data-testid="stMainBlockContainer"],
+      section[data-testid="stMainBlockContainer"] > div,
+      [data-testid="block-container"]
+        { background: #FFFFFF !important; }
+
+      /* ── Text in the main area — dark ink on white (scoped away from sidebar & KPI) ── */
+      [data-testid="stAppViewContainer"] h1,
+      [data-testid="stAppViewContainer"] h2,
+      [data-testid="stAppViewContainer"] h3,
+      [data-testid="stAppViewContainer"] h4,
+      [data-testid="stAppViewContainer"] h5,
+      [data-testid="stAppViewContainer"] h6 { color: #0B1220 !important; }
+      [data-testid="stAppViewContainer"] .main p,
+      [data-testid="stAppViewContainer"] .main span,
+      [data-testid="stAppViewContainer"] .main label,
+      [data-testid="stAppViewContainer"] .main div { color: #334155; }
+      [data-testid="stMarkdownContainer"] p { color: #334155; }
+      [data-testid="stCaptionContainer"] { color: #64748B !important; }
+      .sec { color: #3A86FF !important; }
+
+      /* ── KPI cards stay dark with bright accent numbers in BOTH modes ── */
+      .kpi .kpi-v,       .kpi p.kpi-v       { color: #3BFFA0 !important; }
+      .kpi .kpi-v-blue,  .kpi p.kpi-v-blue  { color: #5BA4FF !important; }
+      .kpi .kpi-v-amber, .kpi p.kpi-v-amber { color: #FFD166 !important; }
+      .kpi .kpi-v-coral, .kpi p.kpi-v-coral { color: #FF6B6B !important; }
+      .kpi .kpi-v-teal,  .kpi p.kpi-v-teal  { color: #3BFFA0 !important; }
+      .kpi .kpi-l, .kpi .kpi-s { color: rgba(255,255,255,.5) !important; }
+
+      /* ── Metrics ── */
+      [data-testid="stMetric"] { background: #F8FAFC !important; border:1px solid #E2E8F0 !important; border-radius:10px; padding:10px; }
+      [data-testid="stMetricValue"] > div { color: #0B1220 !important; }
+      [data-testid="stMetricLabel"] > div { color: #64748B !important; }
+
+      /* ── Form inputs ── */
+      [data-testid="stSelectbox"] > div > div,
+      [data-testid="stMultiSelect"] > div > div,
+      [data-testid="stTextInput"] > div > div
+        { background: #FFFFFF !important; color: #0B1220 !important; border-color: #E2E8F0 !important; }
+
+      /* ── Tabs ── */
+      [data-testid="stTabs"] [role="tab"] { color: #64748B !important; }
+      [data-testid="stTabs"] [role="tab"][aria-selected="true"] { color: #3A86FF !important; border-bottom-color: #3A86FF !important; }
+
+      /* ── Custom cards — keep their light styling ── */
+      .news-card { background: #FFFFFF !important; border-left-color: #3A86FF !important; }
+      .news-title { color: #080E1D !important; }
+      .news-meta  { color: #94A3B8 !important; }
+      .macro-card { background: #FFFFFF !important; border-color: #E2E8F0 !important; }
+      .macro-value { color: #080E1D !important; }
+      .macro-label { color: #94A3B8 !important; }
+
+      /* ── Dataframes ── */
+      [data-testid="stDataFrame"] { background: #FFFFFF !important; border:1px solid #E2E8F0 !important; border-radius:10px; }
+      [data-testid="stDataFrame"] th { background: #F8FAFC !important; color: #64748B !important; }
+      [data-testid="stDataFrame"] td { color: #334155 !important; background: #FFFFFF !important; }
+
+      /* ── Markdown tables (the | col | col | syntax on About page) ── */
+      [data-testid="stAppViewContainer"] table { background: #FFFFFF !important; border-collapse: collapse; }
+      [data-testid="stAppViewContainer"] table th {
+        background: #F8FAFC !important; color: #0B1220 !important;
+        border: 1px solid #E2E8F0 !important; padding: 8px 12px;
+      }
+      [data-testid="stAppViewContainer"] table td {
+        background: #FFFFFF !important; color: #334155 !important;
+        border: 1px solid #E2E8F0 !important; padding: 8px 12px;
+      }
+      [data-testid="stAppViewContainer"] table td strong,
+      [data-testid="stAppViewContainer"] table th strong { color: #0B1220 !important; }
+      [data-testid="stAppViewContainer"] blockquote { color: #475569 !important; border-left: 3px solid #3A86FF !important; }
+
+      /* ── Plotly charts ── */
+      [data-testid="stPlotlyChart"] { background: #FFFFFF !important; }
+
+      hr { border-color: #E2E8F0 !important; }
     </style>""", unsafe_allow_html=True)
 
 NAVY = "#080E1D"
@@ -1118,7 +1212,7 @@ elif page == "Cross-Source":
         am=q("SELECT date,series_code,value FROM market_data WHERE date BETWEEN %s AND %s ORDER BY date",params=(sd,ed))
         if not am.empty:
             am["date"]=pd.to_datetime(am["date"])
-            piv=am.pivot_table(index="date",columns="series_code",values="value").resample("ME").last().dropna(thresh=3)
+            piv=am.pivot_table(index="date",columns="series_code",values="value").resample("M").last().dropna(thresh=3)
             corr=piv.corr()
             fh=px.imshow(corr,color_continuous_scale=["#EF4444","white",BLUE],color_continuous_midpoint=0,text_auto=".2f",aspect="auto")
             fh.update_layout(margin=dict(l=0,r=0,t=20,b=0),height=400,paper_bgcolor="white",font_family="Inter")
