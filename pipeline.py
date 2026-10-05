@@ -12,7 +12,10 @@ Usage:
 Environment variables (set in GitHub Actions Secrets or .env):
     NEWS_API_KEY, FRED_API_KEY,
     SUPABASE_HOST, SUPABASE_PORT, SUPABASE_DB, SUPABASE_USER, SUPABASE_PASSWORD,
-    MONGO_URI
+    MONGO_URI          (optional — MongoDB step is skipped when unset)
+    STORE_FILING_TEXT  (optional, default false — keep full filing text in Mongo)
+    MONGO_MAX_MB       (optional, default 450 — stop writing filings above this size,
+                        keeps the cluster under the 512 MB Atlas M0 free limit)
 """
 
 import os, json, time, requests
@@ -34,7 +37,7 @@ PG_CONFIG = {
     "password": os.environ["SUPABASE_PASSWORD"],
     "sslmode":  "require",
 }
-MONGO_URI = os.environ["MONGO_URI"]
+MONGO_URI = os.getenv("MONGO_URI", "")
 
 # Alpaca (free data API — sign up at alpaca.markets)
 ALPACA_KEY    = os.environ.get("ALPACA_API_KEY", "")
@@ -654,6 +657,9 @@ def run_mongo_load(articles, filings):
     from pymongo import MongoClient, UpdateOne
     from pymongo.errors import OperationFailure, BulkWriteError
     print("\n── Section 6: MongoDB (Atlas) — document store ─────")
+    if not MONGO_URI:
+        print("  ⚠ MONGO_URI not set — skipping MongoDB load")
+        return
     try:
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
         client.admin.command("ping")
@@ -693,6 +699,23 @@ def run_mongo_load(articles, filings):
                 print(f"  ✗ News write error: {e}")
 
     # ── SEC filing documents ──────────────────────────────────────────────────
+    # Free-tier guard: Atlas M0 caps at 512 MB. Full filing text is what pushed
+    # the original cluster past that, so it is only stored when explicitly asked
+    # for, and filing writes stop once the database nears the cap.
+    store_text = os.getenv("STORE_FILING_TEXT", "false").lower() == "true"
+    max_mb     = float(os.getenv("MONGO_MAX_MB", "450"))
+    try:
+        stats   = db.command("dbStats", scale=1024*1024)
+        used_mb = stats.get("dataSize", 0) + stats.get("indexSize", 0)
+    except Exception:
+        used_mb = 0
+    print(f"  ℹ Mongo usage: {used_mb:.1f} MB of {max_mb:.0f} MB budget")
+    if filings and used_mb >= max_mb:
+        print("  ⚠ Over storage budget — skipping filing documents (metadata is in PostgreSQL)")
+        filings = []
+    if filings and not store_text:
+        filings = [{**f, "full_text": ""} for f in filings]
+
     if filings:
         # FORCE_REINDEX=true clears existing full_text so they get re-fetched at 500KB
         # Use this when upgrading from a lower max_chars setting
@@ -739,7 +762,7 @@ def run_mongo_load(articles, filings):
                     total_skipped += len(ops)
                     print(f"  ✗ Quota exceeded at batch {i//BATCH_SIZE} — "
                           f"{total_inserted} inserted before limit hit")
-                    print("  ℹ Upgrade Atlas M0 → M10 ($57/mo) for 10 GB storage")
+                    print("  ℹ Lower MONGO_MAX_MB or leave STORE_FILING_TEXT off to stay on the free tier")
                     print("  ℹ All metadata is safe in PostgreSQL (no size limit issue there)")
                     break
                 else:
