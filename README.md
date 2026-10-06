@@ -5,9 +5,50 @@
 
 A real-time ETL pipeline that ingests financial news, SEC public filings, macroeconomic indicators, and live stock prices from four free APIs — streams them through Apache Kafka, transforms and joins them with PySpark, and serves a unified analytical dashboard.
 
-The entire stack runs locally via Docker Compose, orchestrated by Apache Airflow, with persistent storage in Supabase (PostgreSQL) and MongoDB Atlas.
+The full stack runs locally via Docker Compose, orchestrated by Apache Airflow, with persistent storage in Supabase (PostgreSQL) and MongoDB Atlas. The hosted demo runs for free on Streamlit Community Cloud + GitHub Actions (see below).
 
-**Current scale:** 220,947 rows · 1.21 GB combined (48 MB PostgreSQL + 1,180 MB MongoDB) · 89 companies · 4 sources · 635K+ Kafka messages processed
+**Scale at peak:** 220,947 rows · 89 companies · 4 sources · 635K+ Kafka messages processed
+
+---
+
+## Hosted demo — $0/month
+
+The live demo runs entirely on free tiers. The full Kafka + Spark + Airflow stack below still runs locally with `docker compose up`; the hosted version uses the lightweight `pipeline.py` path, which does the same extract → transform → load without a JVM.
+
+| Layer | Free service | Notes |
+|---|---|---|
+| Dashboard | **Streamlit Community Cloud** | Deploys `app.py` straight from this repo; sleeps when idle, wakes on first visit |
+| ETL schedule | **GitHub Actions** (`daily_pipeline.yml`) | Runs `pipeline.py` at 06:00, 12:00, 18:00 UTC; free for public repos |
+| Structured store | **Supabase free** (500 MB) | ~48 MB used; the scheduled writes keep the project from auto-pausing |
+| Document store | **MongoDB Atlas M0** (512 MB) | News articles + filing metadata; full filing text is off by default (`STORE_FILING_TEXT`) and writes stop at `MONGO_MAX_MB` (450) |
+| Data sources | NewsAPI, SEC Edgar, FRED, Alpaca (IEX feed) | All free keys |
+
+The dashboard still works if MongoDB is unreachable: the News Feed falls back to headline metadata in PostgreSQL.
+
+### Deploy steps
+
+1. **Shut down the old GCP VM** so it stops billing: `./teardown_gcp.sh`, or delete the `finintel-demo` instance in the Cloud console.
+2. **Check Supabase:** open the project in the Supabase dashboard and click *Restore* if it shows as paused.
+3. **Create a free MongoDB cluster:** in Atlas, create an **M0** cluster, add a database user, and under *Network Access* allow `0.0.0.0/0` (Streamlit Cloud and GitHub Actions have no fixed IPs). Copy the `mongodb+srv://` connection string.
+4. **Seed the news collection** from PostgreSQL (one-time, from your machine with `.env` filled in):
+   ```bash
+   pip install psycopg2-binary pymongo python-dotenv
+   python scripts/backfill_mongo_news.py
+   ```
+5. **Update GitHub secrets** (repo → Settings → Secrets and variables → Actions): set `MONGO_URI` to the new cluster, and confirm the `SUPABASE_*`, `NEWS_API_KEY`, `FRED_API_KEY`, `ALPACA_*` secrets are still valid. Then run *Daily ETL Pipeline (Fast)* once from the Actions tab.
+6. **Deploy the dashboard:** at [share.streamlit.io](https://share.streamlit.io), *Create app* → this repo, branch `main`, file `app.py`, Python 3.11. Under *Advanced settings → Secrets*, paste:
+   ```toml
+   MONGO_URI = "mongodb+srv://user:password@cluster.mongodb.net/?appName=Cluster0"
+
+   [postgres]
+   host     = "aws-1-us-east-1.pooler.supabase.com"
+   port     = 5432
+   dbname   = "postgres"
+   user     = "postgres.your_project_id"
+   password = "your_password"
+   ```
+   Keep `MONGO_URI` above the `[postgres]` table so TOML doesn't nest it.
+7. Put the `*.streamlit.app` URL at the top of this README and on your portfolio.
 
 ---
 
@@ -61,7 +102,7 @@ The entire stack runs locally via Docker Compose, orchestrated by Apache Airflow
 │  news_sentiment         │         │                           │
 │  stock_prices           │         │  Full article text +      │
 │                         │         │  filing document content  │
-│  4 tables · 220,947 rows│         │  1.18 GB · flexible schema│
+│  4 tables · 220,947 rows│         │  512 MB cap · flexible    │
 └──────────┬──────────────┘         └─────────────┬─────────────┘
            │                                      │
            └──────────────┬───────────────────────┘
@@ -113,7 +154,9 @@ The custom Airflow image extends `apache/airflow:2.8.1-python3.11` with OpenJDK 
 ```
 fin-intelligence-dashboard/
 ├── app.py                        # Streamlit dashboard (7 pages)
-├── pipeline.py                   # Standalone Python ETL (alternative to the DAG)
+├── pipeline.py                   # Standalone Python ETL (alternative to the DAG; used by GitHub Actions)
+├── scripts/
+│   └── backfill_mongo_news.py    # One-time: seed a fresh Atlas cluster from PostgreSQL
 ├── docker-compose.yml            # 5-container stack definition
 ├── airflow-docker/
 │   └── Dockerfile                # Custom Airflow image (adds Java + PySpark)
@@ -156,7 +199,7 @@ fin-intelligence-dashboard/
 | **Runtime** | OpenJDK 17 | JVM for Spark |
 | **Orchestration** | Apache Airflow 2.8.1 | DAG scheduling, task retry, dependency management |
 | **Structured store** | PostgreSQL 15 (Supabase) | 4 relational tables, indexed by date/ticker |
-| **Document store** | MongoDB Atlas M0 | Full-text filing docs + article content, flexible schema |
+| **Document store** | MongoDB Atlas M0 | Article content + filing documents, flexible schema |
 | **Serve** | Streamlit + Plotly | Interactive dashboard with 7 analytical views |
 | **Containerisation** | Docker Compose | 5-service local deployment |
 
@@ -406,13 +449,13 @@ The demo stack runs entirely on free tiers and local Docker. Every layer maps di
 | Dimension | Demo (now) | Enterprise (AWS) |
 |---|---|---|
 | **Coverage** | 89 tickers, 4 sources | 10,000+ equities, options, FX, crypto, commodities, 50+ alt-data feeds |
-| **Data volume** | 220,947 rows · 1.21 GB | Billions of rows · multi-TB/day ingest · petabyte data lake on S3 |
+| **Data volume** | 220,947 rows | Billions of rows · multi-TB/day ingest · petabyte data lake on S3 |
 | **Update latency** | Daily batch (cron-scheduled DAG) | Sub-second — tick-by-tick via AWS MSK + Kinesis |
 | **Streaming** | 1 Kafka broker (Docker) | AWS MSK — managed multi-AZ Kafka; auto-scaling brokers |
 | **Processing** | PySpark `local[*]` in Airflow container | AWS EMR (managed Spark) + Glue serverless ETL; hundreds of workers |
 | **Orchestration** | Airflow in Docker | Amazon MWAA (managed Airflow) — enterprise DAGs, SLA alerting |
 | **Structured store** | Supabase free (48 MB) | Amazon Redshift — columnar MPP warehouse; petabyte-scale |
-| **Document store** | Atlas M0 (1.18 GB) | Atlas Dedicated / Amazon DocumentDB — VPC peering, 99.99% SLA |
+| **Document store** | Atlas M0 (512 MB cap) | Atlas Dedicated / Amazon DocumentDB — VPC peering, 99.99% SLA |
 | **Data lake** | — | AWS S3 + Lake Formation — raw/curated/aggregated zones; Parquet/Delta |
 | **Concurrency** | 1 user | Thousands behind AWS ALB with auto-scaling EC2 |
 | **Security** | Local only | VPC isolation · IAM · KMS encryption · PrivateLink · SOC 2 / FINRA audit logs |

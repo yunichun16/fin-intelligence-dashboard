@@ -356,8 +356,9 @@ def pg():
     except Exception as e:
         st.error(f"PostgreSQL failed: {e}"); return None
 
-def mongo():
-    """Connect to MongoDB — no caching so secrets are always read fresh."""
+def mongo(quiet=False):
+    """Connect to MongoDB — no caching so secrets are always read fresh.
+    quiet=True returns None without showing an error (Mongo is optional)."""
     from pymongo import MongoClient
 
     # Build URI — try every possible way Streamlit might expose it
@@ -391,7 +392,7 @@ def mongo():
         uri = os.getenv("MONGO_URI", "").strip()
 
     if not uri:
-        st.error("MONGO_URI not found in any location")
+        if not quiet: st.error("MONGO_URI not found in any location")
         return None
 
     try:
@@ -399,7 +400,7 @@ def mongo():
         c.admin.command("ping")
         return c
     except Exception as e:
-        st.error(f"MongoDB connection failed: {e}")
+        if not quiet: st.error(f"MongoDB connection failed: {e}")
         return None
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -440,12 +441,20 @@ def html_table(df: "pd.DataFrame", dark: bool = False) -> str:
 
 
 def q(sql, params=None):
-    conn = pg()
-    if conn is None: return pd.DataFrame()
-    try:
-        return pd.read_sql_query(sql, conn, params=params)
-    except Exception as e:
-        st.warning(f"Query: {e}"); return pd.DataFrame()
+    import psycopg2
+    for attempt in range(2):
+        conn = pg()
+        if conn is None: return pd.DataFrame()
+        try:
+            return pd.read_sql_query(sql, conn, params=params)
+        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+            # Cached connection dropped (e.g. idle timeout on the free tier) — reconnect once
+            pg.clear()
+            if attempt: st.warning(f"Query: {e}"); return pd.DataFrame()
+        except Exception as e:
+            try: conn.rollback()
+            except Exception: pass
+            st.warning(f"Query: {e}"); return pd.DataFrame()
 
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
@@ -548,7 +557,7 @@ if page == "Overview":
     # Get MongoDB size estimate separately
     mongo_size_mb = 0
     try:
-        mc = mongo()
+        mc = mongo(quiet=True)
         if mc:
             db_stats = mc["fin_intelligence"].command("dbStats", scale=1024*1024)
             mongo_size_mb = round(db_stats.get("dataSize", 0) + db_stats.get("indexSize", 0), 1)
@@ -1075,12 +1084,17 @@ elif page == "News Feed":
         fig_style(fc, 140, dark=DARK); fc.update_layout(showlegend=False,margin=dict(l=0,r=0,t=0,b=0))
         st.plotly_chart(fc,use_container_width=True)
 
-    mc=mongo()
-    if mc is None: st.stop()
-    nc=mc["fin_intelligence"]["news_articles"]
-    qry={}
-    if cat_f!="All": qry["category"]=cat_f
-    arts=list(nc.find(qry,{"title":1,"source_name":1,"published_at":1,"description":1,"url":1,"category":1,"_id":0}).sort("published_at",-1).limit(n_art))
+    mc=mongo(quiet=True)
+    if mc is not None:
+        nc=mc["fin_intelligence"]["news_articles"]
+        qry={}
+        if cat_f!="All": qry["category"]=cat_f
+        arts=list(nc.find(qry,{"title":1,"source_name":1,"published_at":1,"description":1,"url":1,"category":1,"_id":0}).sort("published_at",-1).limit(n_art))
+    else:
+        # Mongo unreachable — fall back to the headline metadata kept in PostgreSQL
+        st.caption("Document store offline · showing headlines from PostgreSQL")
+        cond,params=("WHERE category=%s",(cat_f,n_art)) if cat_f!="All" else ("",(n_art,))
+        arts=q(f"SELECT title,source_name,published_at,url,category FROM news_sentiment {cond} ORDER BY published_at DESC NULLS LAST LIMIT %s",params=params).to_dict("records")
     if srch:
         t=srch.lower()
         arts=[a for a in arts if t in str(a.get("title","")).lower() or t in str(a.get("source_name","")).lower()]
@@ -1313,9 +1327,9 @@ elif page == "About":
     and served via this dashboard. Daily automation via GitHub Actions means data updates
     without any manual intervention.
 
-    **Current scale:** 220,947 rows across 4 PostgreSQL tables · 1.21 GB combined storage
-    (48 MB PostgreSQL + 1,180 MB MongoDB) · 89 companies tracked · 4 data sources
-    (NewsAPI, SEC Edgar, FRED, Alpaca Markets).
+    **Scale:** 220,000+ rows across 4 PostgreSQL tables · 89 companies tracked · 4 data sources
+    (NewsAPI, SEC Edgar, FRED, Alpaca Markets). The hosted demo runs entirely on free tiers:
+    Streamlit Community Cloud, GitHub Actions, Supabase and MongoDB Atlas M0.
 
     **Team:** Ce Zhang · Cai Gao · Yuchun Wu · Yanji Li
     """)
@@ -1480,13 +1494,13 @@ elif page == "About":
         st.markdown("""| Dimension | Demo (now) | Enterprise (AWS) |
 |---|---|---|
 | **Coverage** | 89 tickers, 4 sources | Full market: 10,000+ equities, options chains, FX, crypto, commodities, 50+ alt-data feeds |
-| **Data volume** | 220,947 rows · 1.21 GB | Billions of rows · multi-TB/day ingest · petabyte data lake on S3 |
+| **Data volume** | 220,947 rows | Billions of rows · multi-TB/day ingest · petabyte data lake on S3 |
 | **Update latency** | Daily batch (GitHub Actions) | Sub-second streaming — tick-by-tick via AWS MSK (managed Kafka) + Kinesis |
 | **Streaming layer** | 1 Kafka broker (Docker) | AWS MSK — managed, multi-AZ Kafka clusters; auto-scaling broker count with load |
 | **Processing** | PySpark local / Colab | AWS EMR (managed Spark) + AWS Glue for serverless ETL; hundreds of worker nodes on demand |
 | **Orchestration** | GitHub Actions cron | Amazon MWAA (managed Airflow) — enterprise DAGs, SLA monitoring, alerting, retry logic |
 | **Structured store** | PostgreSQL 48 MB (Supabase free) | Amazon Redshift — columnar MPP data warehouse; petabyte-scale; concurrent queries for 1,000s of analysts |
-| **Document store** | MongoDB M0 1.18 GB (Atlas free) | MongoDB Atlas Dedicated / Amazon DocumentDB — dedicated clusters, VPC peering, 99.99% SLA |
+| **Document store** | MongoDB Atlas M0 (free, 512 MB cap) | MongoDB Atlas Dedicated / Amazon DocumentDB — dedicated clusters, VPC peering, 99.99% SLA |
 | **Data lake** | — | AWS S3 + AWS Lake Formation — raw, curated, and aggregated zones; Parquet/Delta Lake format; Athena for ad-hoc SQL |
 | **Compute** | Single machine | Auto-scaling EC2 fleets; spot instances for batch; reserved for real-time |
 | **Concurrency** | 1 user | Thousands of concurrent analysts; load-balanced behind AWS ALB |
