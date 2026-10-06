@@ -118,7 +118,6 @@ FRED_SERIES = {
     "DEXJPUS":      "JPY/USD exchange rate (daily)",
     "DCOILWTICO":   "WTI crude oil spot (daily)",
     "DCOILBRENTEU": "Brent crude oil spot (daily)",
-    "GOLDAMGBD228NLBM": "Gold price (daily)",
     # Macro (monthly/quarterly)
     "CPIAUCSL":     "Consumer Price Index (monthly)",
     "CPILFESL":     "Core CPI ex food & energy (monthly)",
@@ -479,23 +478,30 @@ def fetch_alpaca_bars(tickers, lookback_days=ALPACA_LOOKBACK):
             "adjustment": "all",       # split & dividend adjusted
         }
         try:
-            r = requests.get(f"{ALPACA_BASE}/stocks/bars",
-                             headers=headers, params=params, timeout=15)
-            r.raise_for_status()
-            bars_by_ticker = r.json().get("bars", {})
-            for ticker, bars in bars_by_ticker.items():
-                for bar in bars:
-                    all_bars.append({
-                        "ticker":     ticker,
-                        "date":       bar["t"][:10],   # ISO date string
-                        "open":       bar["o"],
-                        "high":       bar["h"],
-                        "low":        bar["l"],
-                        "close":      bar["c"],
-                        "volume":     bar["v"],
-                        "vwap":       bar.get("vw"),
-                        "fetched_at": datetime.utcnow().isoformat(),
-                    })
+            # Results come back sorted by symbol, 10,000 bars per page — follow
+            # next_page_token or only the first few tickers get any history
+            while True:
+                r = requests.get(f"{ALPACA_BASE}/stocks/bars",
+                                 headers=headers, params=params, timeout=15)
+                r.raise_for_status()
+                body = r.json()
+                bars_by_ticker = body.get("bars") or {}
+                for ticker, bars in bars_by_ticker.items():
+                    for bar in bars:
+                        all_bars.append({
+                            "ticker":     ticker,
+                            "date":       bar["t"][:10],   # ISO date string
+                            "open":       bar["o"],
+                            "high":       bar["h"],
+                            "low":        bar["l"],
+                            "close":      bar["c"],
+                            "volume":     bar["v"],
+                            "vwap":       bar.get("vw"),
+                            "fetched_at": datetime.utcnow().isoformat(),
+                        })
+                if not body.get("next_page_token"):
+                    break
+                params["page_token"] = body["next_page_token"]
         except Exception as e:
             print(f"  ✗ Alpaca batch {batch[:3]}...: {e}")
 
