@@ -152,6 +152,30 @@ ALPACA_BASE     = "https://data.alpaca.markets/v2"
 ALPACA_LOOKBACK = 365 * 15  # 15 years of daily bars — major volume driver
 NEWS_LOOKBACK_DAYS = 30  # fetch last 30 days of news each run
 
+# Incremental loads: once a table has data, only re-fetch a recent window
+# instead of the full history. Rewriting ~250K rows three times a day exhausts
+# the Supabase free tier's disk I/O budget and inserts start timing out.
+# FULL_REFRESH=true forces the full history (e.g. after wiping the database).
+FULL_REFRESH        = os.getenv("FULL_REFRESH", "false").lower() == "true"
+FRED_OVERLAP_DAYS   = 180  # covers late monthly/quarterly releases
+ALPACA_OVERLAP_DAYS = 7    # covers weekends, holidays and late corrections
+
+
+def latest_loaded_date(table):
+    """MAX(date) already in a PostgreSQL table, or None if empty/unreachable."""
+    if FULL_REFRESH:
+        return None
+    try:
+        conn = get_pg()
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT MAX(date) FROM {table}")
+            latest = cur.fetchone()[0]
+        conn.close()
+        return latest
+    except Exception as e:
+        print(f"  ⚠ Could not read latest {table} date ({e}) — fetching full history")
+        return None
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 1 — NewsAPI
@@ -427,10 +451,13 @@ def fetch_fred(series_id, start_date=FRED_START):
 
 def run_fred_ingestion():
     print("\n── Section 3: FRED ─────────────────────────────────")
+    latest = latest_loaded_date("market_data")
+    start  = (latest - timedelta(days=FRED_OVERLAP_DAYS)).isoformat() if latest else FRED_START
+    print(f"  Fetching from {start}" + (" (incremental)" if latest else " (full history)"))
     all_market = []
     for sid, desc in FRED_SERIES.items():
         print(f"  {sid}: {desc[:40]}...", end=" ", flush=True)
-        rows = fetch_fred(sid)
+        rows = fetch_fred(sid, start)
         all_market.extend(rows)
         print(f"✓ {len(rows)}")
         time.sleep(0.3)
@@ -513,7 +540,10 @@ def run_alpaca_ingestion():
     if not ALPACA_KEY:
         print("  ⚠ Skipping — add ALPACA_API_KEY and ALPACA_SECRET_KEY to env")
         return []
-    bars = fetch_alpaca_bars(TARGET_TICKERS)
+    latest   = latest_loaded_date("stock_prices")
+    lookback = ((datetime.utcnow().date() - latest).days + ALPACA_OVERLAP_DAYS) if latest else ALPACA_LOOKBACK
+    print(f"  Fetching last {lookback} days" + (" (incremental)" if latest else " (full history)"))
+    bars = fetch_alpaca_bars(TARGET_TICKERS, lookback)
     print(f"  ✓ {len(bars)} daily bars across {len(TARGET_TICKERS)} tickers")
     return bars
 
@@ -523,7 +553,16 @@ def run_alpaca_ingestion():
 # ══════════════════════════════════════════════════════════════════════════════
 def get_pg():
     import psycopg2
-    return psycopg2.connect(**PG_CONFIG, connect_timeout=10)
+    # A busy free-tier Supabase can take a while to accept connections,
+    # so wait longer and retry before giving up on the whole run.
+    for attempt in range(1, 4):
+        try:
+            return psycopg2.connect(**PG_CONFIG, connect_timeout=30)
+        except psycopg2.OperationalError as e:
+            if attempt == 3:
+                raise
+            print(f"  ⚠ Postgres connect attempt {attempt} failed, retrying in 30s: {str(e).strip().splitlines()[0]}")
+            time.sleep(30)
 
 def create_tables(conn):
     ddl = """
@@ -609,6 +648,11 @@ def load_stock_prices(conn, bars):
             VALUES %s ON CONFLICT (ticker,date) DO UPDATE SET
                 close=EXCLUDED.close, high=EXCLUDED.high, low=EXCLUDED.low,
                 volume=EXCLUDED.volume, vwap=EXCLUDED.vwap, fetched_at=EXCLUDED.fetched_at
+            -- skip rows that haven't changed so re-fetched bars don't rewrite the table
+            WHERE (stock_prices.close, stock_prices.high, stock_prices.low,
+                   stock_prices.volume, stock_prices.vwap)
+                  IS DISTINCT FROM
+                  (EXCLUDED.close, EXCLUDED.high, EXCLUDED.low, EXCLUDED.volume, EXCLUDED.vwap)
         """, rows, page_size=500)
     conn.commit()
     print(f"  ✓ {len(rows)} stock price bars loaded")
