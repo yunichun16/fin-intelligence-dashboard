@@ -431,10 +431,18 @@ def fetch_fred(series_id, start_date=FRED_START):
     params = {"series_id": series_id, "observation_start": start_date,
               "api_key": FRED_API_KEY, "file_type": "json", "sort_order": "asc"}
     try:
-        r = requests.get("https://api.stlouisfed.org/fred/series/observations", params=params, timeout=10)
-        r.raise_for_status()
+        for attempt in range(2):
+            r = requests.get("https://api.stlouisfed.org/fred/series/observations", params=params, timeout=20)
+            r.raise_for_status()
+            try:
+                body = r.json()
+                break
+            except ValueError:
+                if attempt == 1:
+                    raise ValueError(f"HTTP {r.status_code}, non-JSON body: {r.text[:120]!r}")
+                time.sleep(2)
         rows = []
-        for obs in r.json().get("observations", []):
+        for obs in body.get("observations", []):
             val = obs.get("value",".")
             if val != ".":
                 rows.append({
@@ -676,10 +684,37 @@ def load_news_pg(conn, articles):
     conn.commit()
     print(f"  ✓ {len(rows)} news metadata records loaded")
 
+STALE_SESSION_MINUTES = 10
+
+def end_stale_sessions(conn):
+    """
+    End this user's sessions left behind by earlier runs. A run killed mid-upsert
+    (e.g. by the job timeout) can leave a backend holding row locks on
+    stock_prices, and every later upsert then waits on it until statement_timeout.
+    Only sessions whose transaction has been open for 10+ minutes are ended.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT pid, state, now() - COALESCE(xact_start, query_start) AS age,
+                       pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE usename = current_user AND pid <> pg_backend_pid()
+                  AND state IN ('active', 'idle in transaction', 'idle in transaction (aborted)')
+                  AND COALESCE(xact_start, query_start) < now() - %s::interval
+            """, (f"{STALE_SESSION_MINUTES} minutes",))
+            for pid, state, age, _ in cur.fetchall():
+                print(f"  ⚠ Ended stale session {pid} ({state}, {age})")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"  ⚠ Could not check for stale sessions: {e}")
+
 def run_pg_load(articles, filings, market, stock_bars):
     print("\n── Section 5: PostgreSQL (Supabase) ────────────────")
     conn = get_pg()
     print(f"  ✓ Connected to {PG_CONFIG['host']}")
+    end_stale_sessions(conn)
     create_tables(conn)
     load_market(conn, market)
     load_filings(conn, filings)
