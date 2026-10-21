@@ -162,7 +162,12 @@ ALPACA_OVERLAP_DAYS = 7    # covers weekends, holidays and late corrections
 
 
 def latest_loaded_date(table):
-    """MAX(date) already in a PostgreSQL table, or None if empty/unreachable."""
+    """
+    MAX(date) already in a PostgreSQL table, or None if it is empty (full history).
+    If the database can't be reached, assume the last 30 days are missing rather
+    than refetching full history: a struggling free-tier database is exactly when
+    a 140K-row reload would push the run past its timeout.
+    """
     if FULL_REFRESH:
         return None
     try:
@@ -173,8 +178,8 @@ def latest_loaded_date(table):
         conn.close()
         return latest
     except Exception as e:
-        print(f"  ⚠ Could not read latest {table} date ({e}) — fetching full history")
-        return None
+        print(f"  ⚠ Could not read latest {table} date ({str(e).strip().splitlines()[0]}) — fetching the last 30 days")
+        return datetime.utcnow().date() - timedelta(days=30)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
