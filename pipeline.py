@@ -553,7 +553,16 @@ def run_alpaca_ingestion():
 # ══════════════════════════════════════════════════════════════════════════════
 def get_pg():
     import psycopg2
-    return psycopg2.connect(**PG_CONFIG, connect_timeout=10)
+    # A busy free-tier Supabase can take a while to accept connections,
+    # so wait longer and retry before giving up on the whole run.
+    for attempt in range(1, 4):
+        try:
+            return psycopg2.connect(**PG_CONFIG, connect_timeout=30)
+        except psycopg2.OperationalError as e:
+            if attempt == 3:
+                raise
+            print(f"  ⚠ Postgres connect attempt {attempt} failed, retrying in 30s: {str(e).strip().splitlines()[0]}")
+            time.sleep(30)
 
 def create_tables(conn):
     ddl = """
