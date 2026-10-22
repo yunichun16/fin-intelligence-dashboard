@@ -9,6 +9,10 @@ on:
     - cron: '0 18 * * *'
   workflow_dispatch:
 
+# Never run alongside another pipeline run or the health check against the same database
+concurrency:
+  group: supabase-writes
+
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest

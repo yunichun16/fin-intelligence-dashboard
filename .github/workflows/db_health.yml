@@ -1,0 +1,31 @@
+name: Database Health Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      vacuum:
+        description: "Also run VACUUM ANALYZE on the pipeline's tables"
+        type: boolean
+        default: false
+
+concurrency:
+  group: supabase-writes
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install psycopg2-binary
+      - name: Report (and optionally vacuum)
+        env:
+          SUPABASE_HOST:      ${{ secrets.SUPABASE_HOST }}
+          SUPABASE_PORT:      ${{ secrets.SUPABASE_PORT }}
+          SUPABASE_DB:        ${{ secrets.SUPABASE_DB }}
+          SUPABASE_USER:      ${{ secrets.SUPABASE_USER }}
+          SUPABASE_PASSWORD:  ${{ secrets.SUPABASE_PASSWORD }}
+        run: python scripts/db_health.py ${{ inputs.vacuum && '--vacuum' || '' }}
